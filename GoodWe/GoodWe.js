@@ -184,7 +184,9 @@ class GoodWeUdp {
 	#bmsInfo = new GoodweBmSInfo();
 
 	constructor() {
-		this.#client.setMaxListeners(0);
+		// the next line of code should be deleted. I think it was probably introduced to silence the ever increasing listeners on #client
+		// because of the .on()-calls which installs a listener on each invocation, but does not remove it.
+		// this.#client.setMaxListeners(0);
 	}
 
 	destructor() {
@@ -219,13 +221,13 @@ class GoodWeUdp {
 		sendbuf[8] = crc & 0x00ff;
 
 		/*
-		this.#client.on("listening", function () {
+		this.#client.once("listening", function () {
 			console.log("GoodWePacket listening");
 		});
 		*/
 
 		try {
-			this.#client.on("message", (rcvbuf) => {
+			this.#client.once("message", (rcvbuf) => {
 				if (this.#CheckRecPacket(rcvbuf, sendbuf[4], sendbuf[5])) {
 					this.#idInfo.FirmwareVersion = this.#GetStringFromByteArray(rcvbuf, 7, 5);
 					this.#idInfo.ModelName = this.#GetStringFromByteArray(rcvbuf, 12, 10);
@@ -270,12 +272,12 @@ class GoodWeUdp {
 		sendbuf[7] = crc & 0x00ff;
 
 		/*
-		this.#client.on("listening", function () {
+		this.#client.once("listening", function () {
 			console.log("GoodWeDeviceInfo listening");
 		});
 		*/
 		try {
-			this.#client.on("message", (rcvbuf) => {
+			this.#client.once("message", (rcvbuf) => {
 				if (this.#CheckRecRegisterData(rcvbuf, sendbuf[1], sendbuf[5])) {
 					this.#deviceInfo.ModbusProtocolVersion = this.#GetUintFromByteArray(rcvbuf, 5, 2);
 					this.#deviceInfo.RatedPower = this.#GetUintFromByteArray(rcvbuf, 7, 2);
@@ -324,13 +326,13 @@ class GoodWeUdp {
 		sendbuf[7] = crc & 0x00ff;
 
 		/*
-		this.#client.on("listening", function () {
+		this.#client.once("listening", function () {
 			console.log("GoodWeDeviceInfo listening");
 		});
 		*/
 		
 		try{
-			this.#client.on("message", (rcvbuf) => {
+			this.#client.once("message", (rcvbuf) => {
 				if (this.#CheckRecRegisterData(rcvbuf, sendbuf[1], sendbuf[5])) {
 					this.#runningData.Pv1.Voltage = this.#GetUintFromByteArray(rcvbuf, 11, 2) / 10;
 					this.#runningData.Pv1.Current = this.#GetUintFromByteArray(rcvbuf, 13, 2) / 10;
@@ -458,13 +460,13 @@ class GoodWeUdp {
 		sendbuf[7] = crc & 0x00ff;
 
 		/*
-		this.#client.on("listening", function () {
+		this.#client.once("listening", function () {
 			console.log("GoodWeExtComData listening");
 		});
 		*/
 
 		try {
-			this.#client.on("message", (rcvbuf) => {
+			this.#client.once("message", (rcvbuf) => {
 				if (this.#CheckRecRegisterData(rcvbuf, sendbuf[1], sendbuf[5])) {
 					this.#extComData.Commode = this.#GetUintFromByteArray(rcvbuf, 5, 2);
 					this.#extComData.Rssi = this.#GetUintFromByteArray(rcvbuf, 7, 2);
@@ -519,13 +521,13 @@ class GoodWeUdp {
 		sendbuf[7] = crc & 0x00ff;
 
 		/*
-		this.#client.on("listening", function () {
+		this.#client.once("listening", function () {
 			console.log("GoodWeExtComData listening");
 		});
 		*/
 
 		try {
-			this.#client.on("message", (rcvbuf) => {
+			this.#client.once("message", (rcvbuf) => {
 				if (this.#CheckRecRegisterData(rcvbuf, sendbuf[1], sendbuf[5])) {
 					this.#bmsInfo.Status = this.#GetUintFromByteArray(rcvbuf, 5, 2);
 					this.#bmsInfo.PackTemperature = this.#GetUintFromByteArray(rcvbuf, 7, 2) / 10;
