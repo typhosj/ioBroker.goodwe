@@ -184,7 +184,7 @@ class GoodWeUdp {
 	#bmsInfo = new GoodweBmSInfo();
 
 	constructor() {
-		// the next line of code should be deleted. I think it was probably introduced to silence the ever increasing listeners on #client
+		// the next line of code should be deleted. I think it was probably introduced to silence the ever increasing listeners on this.#client
 		// because of the .on()-calls which installs a listener on each invocation, but does not remove it.
 		// this.#client.setMaxListeners(0);
 	}
