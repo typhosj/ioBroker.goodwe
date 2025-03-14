@@ -21,6 +21,11 @@ Communication with GoodWe Inverter ET/EH/BH/BT Series
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+
+### 1.0.5 (2025-03-14)
+* (ty) Fixed EnergyDayDischarge
+* (mrx8) fixed memory leak
+
 ### 1.0.4 (2023-02-19)
 * (Thomas Schönberger) Add some Logs for ENETUNREACH error
 
