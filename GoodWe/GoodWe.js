@@ -415,7 +415,7 @@ class GoodWeUdp {
 					this.#runningData.EnergyBatteryCharge = this.#GetUintFromByteArray(rcvbuf, 217, 4) / 10;
 					this.#runningData.EnergyDayCharge = this.#GetUintFromByteArray(rcvbuf, 221, 2) / 10;
 					this.#runningData.EnergyBatteryDischarge = this.#GetUintFromByteArray(rcvbuf, 223, 4) / 10;
-					this.#runningData.EnergyDayDischarge = this.#GetUintFromByteArray(rcvbuf, 227, 4) / 10;
+					this.#runningData.EnergyDayDischarge = this.#GetUintFromByteArray(rcvbuf, 227, 2) / 10;
 					this.#runningData.BatteryStrings = this.#GetUintFromByteArray(rcvbuf, 229, 2);
 					this.#runningData.CpldWarningCode = this.#GetUintFromByteArray(rcvbuf, 231, 2);
 					this.#runningData.WChargeCtrFlag = this.#GetUintFromByteArray(rcvbuf, 233, 2);
