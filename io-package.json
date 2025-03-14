@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "news": {
+      "1.0.5": {
+        "en": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "de": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "ru": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "pt": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "nl": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "fr": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "it": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "es": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "pl": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "uk": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
+        "zh-cn": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak"
+      },
       "1.0.4": {
         "en": "(Thomas Schönberger) Add some Logs for ENETUNREACH error",
         "de": "(Thomas Schönberger) Fügen Sie einige Logs für ENETUNREACH-Fehler hinzu",
