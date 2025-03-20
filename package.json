@@ -6,7 +6,7 @@
     "name": "Thomas Schönberger",
     "email": "SchoenbergerThomas@freenet.de"
   },
-  "homepage": "https://github.com/FossyTom/ioBroker.goodwe",
+  "homepage": "https://github.com/typhosj/ioBroker.goodwe",
   "license": "MIT",
   "keywords": [
     "GoodWe",
@@ -18,7 +18,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git@github.com:FossyTom/ioBroker.goodwe.git"
+    "url": "git@github.com:typhosj/ioBroker.goodwe.git"
   },
   "engines": {
     "node": ">= 18"
@@ -45,7 +45,6 @@
     "eslint": "^9.22.0",
     "mocha": "^11.1.0",
     "proxyquire": "^2.1.3",
-    "sinon-chai": "^4.0.0",
     "sinon": "^19.0.4",
     "typescript": "~5.8.2"
   },
