@@ -271,7 +271,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      this.log.info("ReadIdInfo");
+      //this.log.info("ReadIdInfo");
       console.error(error);
     }
   }
@@ -375,7 +375,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      this.log.info("ReadDeviceInfo");
+      //this.log.info("ReadDeviceInfo");
       console.error(error);
     }
   }
@@ -713,7 +713,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      this.log.info("ReadRunningData");
+      //this.log.info("ReadRunningData");
       console.error(error);
     }
   }
@@ -820,7 +820,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      this.log.info("ReadExtComData");
+      //this.log.info("ReadExtComData");
       console.error(error);
     }
   }
@@ -892,7 +892,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      this.log.info("ReadBmsInfo");
+      //this.log.info("ReadBmsInfo");
       console.error(error);
     }
   }
