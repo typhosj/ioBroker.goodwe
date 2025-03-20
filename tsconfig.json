@@ -24,8 +24,8 @@
 		// "noUnusedLocals": true,
 		// "noUnusedParameters": true,
 		"useUnknownInCatchVariables": false,
-		module: "CommonJS",
-		moduleResolution: "Node"
+		"module": "CommonJS",
+		"moduleResolution": "Node"
 
 	},
 	"include": [
