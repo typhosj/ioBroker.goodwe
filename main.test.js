@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-"use strict";
+//"use strict";
 
 /**
  * This is a dummy TypeScript test file using chai and mocha
@@ -10,22 +10,22 @@
 
 // tslint:disable:no-unused-expression
 
-const { expect } = require("chai");
+//const { expect } = require("chai");
 // import { functionToTest } from "./moduleToTest";
 
-describe("module to test => function to test", () => {
+//describe("module to test => function to test", () => {
 	// initializing logic
-	const expected = 5;
+//	const expected = 5;
 
-	it(`should return ${expected}`, () => {
-		const result = 5;
+//	it(`should return ${expected}`, () => {
+//		const result = 5;
 		// assign result a value from functionToTest
-		expect(result).to.equal(expected);
+//		expect(result).to.equal(expected);
 		// or using the should() syntax
-		result.should.equal(expected);
-	});
+//		result.should.equal(expected);
+//	});
 	// ... more tests => it
 
-});
+//});
 
 // ... more test suites => describe
