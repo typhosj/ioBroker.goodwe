@@ -23,7 +23,7 @@
 	"dataSource": "poll",
 	"connectionIndicator": "yes",
 	"language": "JavaScript",
-	"nodeVersion": "14",
+	"nodeVersion": "18",
 	"adminUi": "json",
 	"tools": [
 		"ESLint",
