@@ -185,7 +185,11 @@ class GoodWeUdp {
   #extComData = new GoodWeExternalComData();
   #bmsInfo = new GoodweBmSInfo();
 
-  constructor() {
+  /**
+   * @param {ioBroker.Logger} log
+   */
+  constructor(log) {
+    this.log = log;
     // the next line of code should be deleted. I think it was probably introduced to silence the ever increasing listeners on this.#client
     // because of the .on()-calls which installs a listener on each invocation, but does not remove it.
     // this.#client.setMaxListeners(0);
@@ -271,7 +275,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      //this.log.info("ReadIdInfo");
+      this.log.warn("ReadIdInfo: " + error);
       console.error(error);
     }
   }
@@ -375,7 +379,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      //this.log.info("ReadDeviceInfo");
+      this.log.warn("ReadDeviceInfo: " + error);
       console.error(error);
     }
   }
@@ -713,7 +717,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      //this.log.info("ReadRunningData");
+      this.log.warn("ReadRunningData: " + error);
       console.error(error);
     }
   }
@@ -820,7 +824,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      //this.log.info("ReadExtComData");
+      this.log.warn("ReadExtComData: " + error);
       console.error(error);
     }
   }
@@ -892,7 +896,7 @@ class GoodWeUdp {
         },
       );
     } catch (error) {
-      //this.log.info("ReadBmsInfo");
+      this.log.warn("ReadBmsInfo: " + error);
       console.error(error);
     }
   }

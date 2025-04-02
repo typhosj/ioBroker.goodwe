@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "news": {
+      "1.0.6": {
+        "en": "(ty) updated dependencies\n(ty) extended logging",
+        "de": "(ty) updated dependencies\n(ty) extended logging",
+        "ru": "(ty) updated dependencies\n(ty) extended logging",
+        "pt": "(ty) updated dependencies\n(ty) extended logging",
+        "nl": "(ty) updated dependencies\n(ty) extended logging",
+        "fr": "(ty) updated dependencies\n(ty) extended logging",
+        "it": "(ty) updated dependencies\n(ty) extended logging",
+        "es": "(ty) updated dependencies\n(ty) extended logging",
+        "pl": "(ty) updated dependencies\n(ty) extended logging",
+        "uk": "(ty) updated dependencies\n(ty) extended logging",
+        "zh-cn": "(ty) updated dependencies\n(ty) extended logging"
+      },
       "1.0.5": {
         "en": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
         "de": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",

@@ -21,6 +21,9 @@ Communication with GoodWe Inverter ET/EH/BH/BT Series
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.0.6 (2025-04-02)
+* (ty) updated dependencies
+* (ty) extended logging
 
 ### 1.0.5 (2025-03-14)
 * (ty) Fixed EnergyDayDischarge

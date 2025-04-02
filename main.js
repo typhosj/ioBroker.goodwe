@@ -12,7 +12,6 @@ const goodWe = require("./GoodWe/GoodWe");
 let tmr_timeout = null;
 
 class Goodwe extends utils.Adapter {
-  inverter = new goodWe.GoodWeUdp();
   interval;
   cycleCnt = 0;
 
@@ -24,10 +23,11 @@ class Goodwe extends utils.Adapter {
       ...options,
       name: "goodwe",
     });
+
+    this.inverter = new goodWe.GoodWeUdp(this.log);
+    
     this.on("ready", this.onReady.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
-    // this.on("objectChange", this.onObjectChange.bind(this));
-    // this.on("message", this.onMessage.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
 
@@ -36,6 +36,7 @@ class Goodwe extends utils.Adapter {
    */
   async onReady() {
     // Initialize your adapter here
+    this.inverter = new goodWe.GoodWeUdp(this.log);
     this.CreateObjectsDeviceInfo();
     this.CreateObjectsRunningData();
     this.CreateObjectsExtComData();
@@ -47,13 +48,6 @@ class Goodwe extends utils.Adapter {
     this.inverter.Connect(this.config.ipAddr, 8899);
 
     this.myTimer();
-
-    // examples for the checkPassword/checkGroup functions
-    let result = await this.checkPasswordAsync("admin", "iobroker");
-    this.log.info(`check user admin pw iobroker: ${result}`);
-
-    result = await this.checkGroupAsync("admin", "admin");
-    this.log.info(`check group user admin group admin: ${result}`);
   }
 
   /**
