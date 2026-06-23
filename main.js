@@ -130,7 +130,7 @@ class Goodwe extends utils.Adapter {
     try {
       switch (obj.command) {
         case "validateIp": {
-          const ip = obj.message?.ip ?? this.config.ipAddr;
+          const ip = this.GetConfiguredIp(obj.message?.ip);
           const validation = validateIpv4Address(ip);
 
           if (!validation.valid) {
@@ -158,8 +158,8 @@ class Goodwe extends utils.Adapter {
 
         case "discoverInverters": {
           const result = await discoverGoodWeInverters({
-            ip: obj.message?.ip ?? this.config.ipAddr,
-            subnet: obj.message?.subnet,
+            ip: this.GetConfiguredIp(obj.message?.ip),
+            subnet: this.GetConfiguredSubnet(obj.message?.subnet),
             timeoutMs: Number(obj.message?.timeoutMs) || 700,
             concurrency: Number(obj.message?.concurrency) || undefined,
           });
@@ -170,8 +170,8 @@ class Goodwe extends utils.Adapter {
 
         case "discoverInverterOptions": {
           const result = await discoverGoodWeInverters({
-            ip: obj.message?.ip ?? this.config.ipAddr,
-            subnet: obj.message?.subnet,
+            ip: this.GetConfiguredIp(obj.message?.ip),
+            subnet: this.GetConfiguredSubnet(obj.message?.subnet),
             timeoutMs: Number(obj.message?.timeoutMs) || 700,
             concurrency: Number(obj.message?.concurrency) || 64,
           });
@@ -186,6 +186,29 @@ class Goodwe extends utils.Adapter {
     } catch (error) {
       respond({ error: error.message ?? String(error) });
     }
+  }
+
+  GetConfiguredIp(messageIp) {
+    if (typeof messageIp === "string" && messageIp.trim() !== "") {
+      return messageIp.trim();
+    }
+
+    return this.config.ipAddr;
+  }
+
+  GetConfiguredSubnet(messageSubnet) {
+    if (typeof messageSubnet === "string" && messageSubnet.trim() !== "") {
+      return messageSubnet.trim();
+    }
+
+    if (
+      typeof this.config.discoverySubnet === "string" &&
+      this.config.discoverySubnet.trim() !== ""
+    ) {
+      return this.config.discoverySubnet.trim();
+    }
+
+    return undefined;
   }
 
   CreateObjectsDeviceInfo() {

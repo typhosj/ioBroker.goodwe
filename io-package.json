@@ -218,6 +218,7 @@
   },
   "native": {
     "ipAddr": "127.0.0.1",
+    "discoverySubnet": "",
     "pollCycle": 10,
     "timeoutMs": 5000,
     "retries": 1,
