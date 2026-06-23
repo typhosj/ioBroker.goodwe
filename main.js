@@ -8,6 +8,13 @@
 // you need to create an adapter
 const utils = require("@iobroker/adapter-core");
 const goodWe = require("./GoodWe/GoodWe");
+const { registerGroups, TYPE } = require("./lib/register-map");
+const {
+  bitfields,
+  decodeBitfield,
+  decodeValue,
+  valueStates,
+} = require("./lib/status-definitions");
 
 let tmr_timeout = null;
 
@@ -40,11 +47,16 @@ class Goodwe extends utils.Adapter {
     this.CreateObjectsRunningData();
     this.CreateObjectsExtComData();
     this.CreateObjectsBmsInfo();
+    await this.CreateObjectsFromRegisterMap();
+    await this.CreateDecodedStatusObjects();
 
     // Reset the connection indicator during startup
     this.setState("info.connection", false, true);
 
-    this.inverter.Connect(this.config.ipAddr, 8899);
+    await this.inverter.Connect(this.config.ipAddr, 8899, {
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+    });
 
     this.myTimer();
   }
@@ -57,6 +69,7 @@ class Goodwe extends utils.Adapter {
   onUnload(callback) {
     try {
       this.clearTimeout(tmr_timeout);
+      this.inverter.destructor();
 
       callback();
     } catch (e) {
@@ -231,6 +244,206 @@ class Goodwe extends utils.Adapter {
       },
       native: {},
     });
+  }
+
+  async CreateObjectsFromRegisterMap() {
+    const channels = new Set();
+
+    for (const group of Object.values(registerGroups)) {
+      channels.add(group.channel);
+
+      for (const item of group.entries) {
+        const parts = item.state.split(".");
+        parts.pop();
+
+        while (parts.length > 0) {
+          channels.add(parts.join("."));
+          parts.pop();
+        }
+      }
+    }
+
+    for (const channel of channels) {
+      await this.setObjectNotExistsAsync(channel, {
+        type: "channel",
+        common: { name: channel.split(".").pop() },
+        native: {},
+      });
+    }
+
+    for (const group of Object.values(registerGroups)) {
+      for (const item of group.entries) {
+        await this.setObjectNotExistsAsync(item.state, {
+          type: "state",
+          common: {
+            name: item.state.split(".").pop(),
+            type: item.type === TYPE.STRING ? "string" : "number",
+            role: item.type === TYPE.STRING ? "text" : item.role,
+            read: true,
+            write: false,
+            unit: item.unit,
+          },
+          native: {
+            address: item.address,
+            type: item.type,
+            scale: item.scale,
+          },
+        });
+      }
+    }
+  }
+
+  async CreateDecodedStatusObjects() {
+    const states = [
+      "RunningData.GridModeText",
+      "RunningData.WorkModeText",
+      "RunningData.OperationModeText",
+      "RunningData.ErrorMessageActive",
+      "RunningData.DiagStatusActive",
+      "RunningData.PV1.ModeText",
+      "RunningData.PV2.ModeText",
+      "RunningData.PV3.ModeText",
+      "RunningData.PV4.ModeText",
+      "RunningData.Battery1.ModeText",
+      "RunningData.BackUpL1.ModeText",
+      "RunningData.BackUpL2.ModeText",
+      "RunningData.BackUpL3.ModeText",
+      "BMSInfo.ErrorCodeActive",
+      "BMSInfo.WarningCodeActive",
+      "BMSInfo.DRMStatusActive",
+    ];
+
+    for (const state of states) {
+      await this.setObjectNotExistsAsync(state, {
+        type: "state",
+        common: {
+          name: state.split(".").pop() ?? state,
+          type: "string",
+          role: "text",
+          read: true,
+          write: false,
+        },
+        native: {},
+      });
+    }
+  }
+
+  async UpdateStatesFromRegisterMap(group) {
+    for (const item of group.entries) {
+      await this.setStateAsync(
+        item.state,
+        this.GetMappedValue(item.model, this.inverter[this.GroupGetter(group)]),
+        true,
+      );
+    }
+  }
+
+  GroupGetter(group) {
+    switch (group.name) {
+      case "DeviceInfo":
+        return "DeviceInfo";
+      case "RunningData":
+        return "RunningData";
+      case "ExtComData":
+        return "ExtComData";
+      case "BMSInfo":
+        return "BmsInfo";
+      case "DeviceInfo.SIMCCID":
+        return "DeviceInfo";
+      case "ExtComData.Extended":
+        return "ExtComData";
+      case "FlashInfo":
+        return "FlashInfo";
+      case "BMSInfo.Extended":
+        return "BmsInfo";
+      case "BMSDetail":
+        return "BmsDetail";
+      case "CEIAutoTest":
+        return "CeiAutoTest";
+      case "PowerLimit":
+        return "PowerLimit";
+      default:
+        return "";
+    }
+  }
+
+  GetMappedValue(path, source) {
+    return path.split(".").reduce((current, part) => current?.[part], source);
+  }
+
+  async UpdateDecodedRunningStatuses() {
+    const data = this.inverter.RunningData;
+
+    await this.setStateAsync(
+      "RunningData.GridModeText",
+      decodeValue(data.GridMode, valueStates.gridStatus),
+      true,
+    );
+    await this.setStateAsync(
+      "RunningData.WorkModeText",
+      decodeValue(data.WorkMode, valueStates.workMode),
+      true,
+    );
+    await this.setStateAsync(
+      "RunningData.OperationModeText",
+      decodeValue(data.OperationMode, valueStates.operationMode),
+      true,
+    );
+    await this.setStateAsync(
+      "RunningData.Battery1.ModeText",
+      decodeValue(data.Battery1.Mode, valueStates.batteryStatus),
+      true,
+    );
+
+    for (const pv of ["PV1", "PV2", "PV3", "PV4"]) {
+      await this.setStateAsync(
+        `RunningData.${pv}.ModeText`,
+        decodeValue(data[pv.replace("PV", "Pv")].Mode, valueStates.pvMode),
+        true,
+      );
+    }
+
+    for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"]) {
+      await this.setStateAsync(
+        `RunningData.${phase}.ModeText`,
+        decodeValue(data[phase].Mode, valueStates.backupStatus),
+        true,
+      );
+    }
+
+    await this.setStateAsync(
+      "RunningData.ErrorMessageActive",
+      decodeBitfield(data.ErrorMessage, bitfields.errorMessage).join(", "),
+      true,
+    );
+    await this.setStateAsync(
+      "RunningData.DiagStatusActive",
+      decodeBitfield(data.DiagStatusL, bitfields.diagnosticStatus).join(", "),
+      true,
+    );
+  }
+
+  async UpdateDecodedBmsStatuses() {
+    const bms = this.inverter.BmsInfo;
+    const errorCode = (bms.ErrorCodeH ?? 0) * 0x10000 + (bms.ErrorCode ?? 0);
+    const warningCode =
+      (bms.WarningCodeH ?? 0) * 0x10000 + (bms.WarningCodeL ?? 0);
+
+    await this.setStateAsync(
+      "BMSInfo.ErrorCodeActive",
+      decodeBitfield(errorCode, bitfields.bmsAlarm).join(", "),
+      true,
+    );
+    await this.setStateAsync(
+      "BMSInfo.WarningCodeActive",
+      decodeBitfield(warningCode, bitfields.bmsWarning).join(", "),
+      true,
+    );
+    await this.setStateAsync(
+      "BMSInfo.DRMStatusActive",
+      decodeBitfield(bms.DRMStatus ?? 0, bitfields.drmStatus).join(", "),
+      true,
+    );
   }
 
   CreateObjectsDcParameters(Path, Name) {
@@ -445,8 +658,15 @@ class Goodwe extends utils.Adapter {
     });
   }
 
-  UpdateDeviceInfo() {
-    this.inverter.ReadDeviceInfo();
+  async UpdateDeviceInfo() {
+    const success = await this.inverter.ReadGroup("deviceInfo");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.deviceInfo);
 
     this.setStateAsync(
       "DeviceInfo.ModbusProtocolVersion",
@@ -512,8 +732,16 @@ class Goodwe extends utils.Adapter {
     this.setStateAsync("info.connection", this.inverter.Status, true);
   }
 
-  UpdateRunningData() {
-    this.inverter.ReadRunningData();
+  async UpdateRunningData() {
+    const success = await this.inverter.ReadGroup("runningData");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.runningData);
+    await this.UpdateDecodedRunningStatuses();
 
     this.setStateAsync(
       "RunningData.PV1.Voltage",
@@ -978,8 +1206,15 @@ class Goodwe extends utils.Adapter {
     );
   }
 
-  UpdateExtComData() {
-    this.inverter.ReadExtComData();
+  async UpdateExtComData() {
+    const success = await this.inverter.ReadGroup("extComData");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.extComData);
 
     this.setStateAsync(
       "ExtComData.Commode",
@@ -1064,8 +1299,16 @@ class Goodwe extends utils.Adapter {
     );
   }
 
-  UpdateBmsInfo() {
-    this.inverter.ReadBmsInfo();
+  async UpdateBmsInfo() {
+    const success = await this.inverter.ReadGroup("bmsInfo");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.bmsInfo);
+    await this.UpdateDecodedBmsStatuses();
 
     this.setStateAsync("BMSInfo.Status", this.inverter.BmsInfo.Status, true);
     this.setStateAsync(
@@ -1097,38 +1340,74 @@ class Goodwe extends utils.Adapter {
     );
   }
 
-  myTimer() {
-    if (this.inverter.Status == false) {
-      this.cycleCnt = 0;
-      this.inverter.ReadIdInfo();
-    } else {
-      switch (this.cycleCnt) {
-        case 1:
-          this.UpdateDeviceInfo();
-          //this.log.info("Goodwe update");
-          break;
+  async UpdateAdditionalRegisterGroups() {
+    const groupNames = [
+      "deviceSimccid",
+      "extComDataExtended",
+      "flashInfo",
+      "bmsInfoExtended",
+      "bmsDetail",
+      "ceiAutoTest",
+      "powerLimit",
+    ];
 
-        case 3:
-          this.UpdateRunningData();
-          break;
+    for (const groupName of groupNames) {
+      const group = registerGroups[groupName];
+      const success = await this.inverter.ReadGroup(groupName);
 
-        case 5:
-          this.UpdateExtComData();
-          break;
-
-        case 7:
-          this.UpdateBmsInfo();
-          break;
+      if (success) {
+        await this.UpdateStatesFromRegisterMap(group);
       }
-
-      if (this.cycleCnt >= this.config.pollCycle) {
-        this.cycleCnt = 0;
-      }
-
-      this.cycleCnt++;
     }
 
-    tmr_timeout = this.setTimeout(() => this.myTimer(), 1000);
+    await this.UpdateDecodedBmsStatuses();
+    await this.setStateAsync("info.connection", this.inverter.Status, true);
+  }
+
+  async myTimer() {
+    try {
+      if (this.inverter.Status == false) {
+        this.cycleCnt = 0;
+        const success = await this.inverter.ReadIdInfo();
+        await this.setStateAsync("info.connection", success, true);
+      } else {
+        switch (this.cycleCnt) {
+          case 1:
+            await this.UpdateDeviceInfo();
+            //this.log.info("Goodwe update");
+            break;
+
+          case 3:
+            await this.UpdateRunningData();
+            break;
+
+          case 5:
+            await this.UpdateExtComData();
+            break;
+
+          case 7:
+            await this.UpdateBmsInfo();
+            break;
+
+          case 9:
+            if (this.config.pollExtended !== false) {
+              await this.UpdateAdditionalRegisterGroups();
+            }
+            break;
+        }
+
+        if (this.cycleCnt >= this.config.pollCycle) {
+          this.cycleCnt = 0;
+        }
+
+        this.cycleCnt++;
+      }
+    } catch (error) {
+      this.log.warn(`poll cycle failed: ${error.message ?? error}`);
+      await this.setStateAsync("info.connection", false, true);
+    } finally {
+      tmr_timeout = this.setTimeout(() => this.myTimer(), 1000);
+    }
   }
 }
 

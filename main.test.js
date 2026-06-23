@@ -1,31 +1,71 @@
-/* eslint-disable no-undef */
-//"use strict";
+"use strict";
 
-/**
- * This is a dummy TypeScript test file using chai and mocha
- *
- * It's automatically excluded from npm and its build output is excluded from both git and npm.
- * It is advised to test all your modules with accompanying *.test.js-files
- */
+const assert = require("node:assert/strict");
+const { registerGroups } = require("./lib/register-map");
+const {
+  bitfields,
+  decodeBitfield,
+  decodeValue,
+  valueStates,
+} = require("./lib/status-definitions");
 
-// tslint:disable:no-unused-expression
+describe("register map", () => {
+  it("keeps all entries inside their request block", () => {
+    for (const group of Object.values(registerGroups)) {
+      for (const item of group.entries) {
+        assert.ok(
+          item.address >= group.start,
+          `${item.state} is before ${group.name} start`,
+        );
+        assert.ok(
+          item.address + item.registers <= group.start + group.count,
+          `${item.state} exceeds ${group.name} block`,
+        );
+      }
+    }
+  });
 
-//const { expect } = require("chai");
-// import { functionToTest } from "./moduleToTest";
+  it("defines state and model paths for every register", () => {
+    for (const group of Object.values(registerGroups)) {
+      for (const item of group.entries) {
+        assert.equal(typeof item.state, "string");
+        assert.equal(typeof item.model, "string");
+        assert.equal(typeof item.type, "string");
+        assert.ok(item.state.includes("."));
+      }
+    }
+  });
 
-//describe("module to test => function to test", () => {
-	// initializing logic
-//	const expected = 5;
+  it("contains the extended specification groups", () => {
+    for (const groupName of [
+      "deviceSimccid",
+      "extComDataExtended",
+      "flashInfo",
+      "bmsInfoExtended",
+      "bmsDetail",
+      "ceiAutoTest",
+      "powerLimit",
+    ]) {
+      assert.ok(registerGroups[groupName], `${groupName} is missing`);
+      assert.ok(registerGroups[groupName].entries.length > 0);
+    }
+  });
+});
 
-//	it(`should return ${expected}`, () => {
-//		const result = 5;
-		// assign result a value from functionToTest
-//		expect(result).to.equal(expected);
-		// or using the should() syntax
-//		result.should.equal(expected);
-//	});
-	// ... more tests => it
+describe("status decoding", () => {
+  it("decodes known enum values", () => {
+    assert.equal(decodeValue(1, valueStates.gridStatus), "OK");
+    assert.equal(decodeValue(4, valueStates.operationMode), "Battery");
+  });
 
-//});
+  it("marks unknown enum values", () => {
+    assert.equal(decodeValue(99, valueStates.pvMode), "Unknown (99)");
+  });
 
-// ... more test suites => describe
+  it("decodes active bit names", () => {
+    assert.deepEqual(decodeBitfield(0b101, bitfields.drmStatus), [
+      "DRM0",
+      "DRM2",
+    ]);
+  });
+});

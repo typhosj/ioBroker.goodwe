@@ -21,6 +21,37 @@
 			"md": 6,
 			"lg": 6,
 			"help": "Poll cycle for data refreshment in seconds"
+		},
+		"timeoutMs": {
+			"newLine": true,
+			"type": "number",
+			"min": 1000,
+			"max": 30000,
+			"label": "Timeout",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "UDP request timeout in milliseconds"
+		},
+		"retries": {
+			"newLine": true,
+			"type": "number",
+			"min": 0,
+			"max": 5,
+			"label": "Retries",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Retries per UDP request"
+		},
+		"pollExtended": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll extended registers",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read SIMCCID, flash, BMS detail, CEI auto test and power limit registers"
 		}
 	}
 }

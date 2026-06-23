@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "news": {
+      "1.0.7": {
+        "en": "Hardened UDP communication\nAdded specification based register map and extended GoodWe data points\nAdded decoded status and bitfield states",
+        "de": "UDP-Kommunikation gehärtet\nSpezifikationsbasierte Register-Map und erweiterte GoodWe-Datenpunkte ergänzt\nDekodierte Status- und Bitfeld-Zustände ergänzt",
+        "ru": "Усилена UDP-коммуникация\nДобавлена карта регистров на основе спецификации и расширенные точки данных GoodWe\nДобавлены декодированные состояния статусов и битовых полей",
+        "pt": "Comunicação UDP reforçada\nAdicionado mapa de registros baseado na especificação e pontos de dados GoodWe ampliados\nAdicionados estados decodificados de status e campos de bits",
+        "nl": "UDP-communicatie robuuster gemaakt\nSpecificatiegebaseerde registermap en uitgebreide GoodWe-datapunten toegevoegd\nGedecodeerde status- en bitveldstatussen toegevoegd",
+        "fr": "Communication UDP renforcée\nAjout d'une carte de registres basée sur la spécification et de points de données GoodWe étendus\nAjout d'états décodés pour les statuts et champs de bits",
+        "it": "Comunicazione UDP resa più robusta\nAggiunta mappa registri basata sulla specifica e punti dati GoodWe estesi\nAggiunti stati decodificati per stati e campi bit",
+        "es": "Comunicación UDP reforzada\nAñadido mapa de registros basado en la especificación y puntos de datos GoodWe ampliados\nAñadidos estados decodificados de estado y campos de bits",
+        "pl": "Wzmocniono komunikację UDP\nDodano mapę rejestrów opartą na specyfikacji i rozszerzone punkty danych GoodWe\nDodano zdekodowane stany statusów i pól bitowych",
+        "uk": "Посилено UDP-комунікацію\nДодано карту регістрів на основі специфікації та розширені точки даних GoodWe\nДодано декодовані стани статусів і бітових полів",
+        "zh-cn": "增强了 UDP 通信\n添加了基于规范的寄存器映射和扩展的 GoodWe 数据点\n添加了解码后的状态和位字段状态"
+      },
       "1.0.6": {
         "en": "(ty) updated dependencies\n(ty) extended logging",
         "de": "(ty) updated dependencies\n(ty) extended logging",
@@ -175,7 +188,10 @@
   },
   "native": {
     "ipAddr": "127.0.0.1",
-    "pollCycle": 10
+    "pollCycle": 10,
+    "timeoutMs": 5000,
+    "retries": 1,
+    "pollExtended": true
   },
   "objects": [],
   "instanceObjects": [

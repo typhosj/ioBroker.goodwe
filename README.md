@@ -14,6 +14,28 @@
 
 Communication with GoodWe Inverter ET/EH/BH/BT Series
 
+## Supported data
+
+The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/BH/BT devices:
+
+* Device information, including optional SIMCCID
+* Running data
+* External communication and extended meter data
+* Flash information
+* BMS information and BMS detailed information
+* CEI auto test information
+* Power limit information
+
+Raw register values are kept as ioBroker states. Important mode and bitfield values are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
+
+## Configuration
+
+* `ipAddr`: IP address of the inverter.
+* `pollCycle`: Base poll cycle in seconds.
+* `timeoutMs`: UDP request timeout in milliseconds.
+* `retries`: Retry count per UDP request.
+* `pollExtended`: Enables the less frequently used extended register groups.
+
 
 
 ## Changelog
@@ -21,6 +43,13 @@ Communication with GoodWe Inverter ET/EH/BH/BT Series
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.0.7 (2026-06-23)
+* Hardened UDP communication with async request handling, timeout and retry support
+* Added specification based register map and extended GoodWe register groups
+* Added decoded status and bitfield states for inverter, BMS, DRM and diagnostics
+* Added adapter options for request timeout, retries and extended register polling
+* Added register-map and status-decoding tests
+
 ### 1.0.6 (2025-04-02)
 * (ty) updated dependencies
 * (ty) extended logging
