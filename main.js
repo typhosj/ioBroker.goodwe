@@ -1353,7 +1353,9 @@ class Goodwe extends utils.Adapter {
 
     for (const groupName of groupNames) {
       const group = registerGroups[groupName];
-      const success = await this.inverter.ReadGroup(groupName);
+      const success = await this.inverter.ReadGroup(groupName, {
+        optional: true,
+      });
 
       if (success) {
         await this.UpdateStatesFromRegisterMap(group);

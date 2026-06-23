@@ -200,6 +200,7 @@ class GoodWeUdp {
   #port = 0;
   #client = dgram.createSocket("udp4");
   #pendingRequests = [];
+  #optionalGroupBackoffUntil = new Map();
   #timeoutMs = GoodWeUdp.DefaultTimeoutMs;
   #retries = GoodWeUdp.DefaultRetries;
   #idInfo = new GoodWeIdInfo();
@@ -421,8 +422,10 @@ class GoodWeUdp {
     current[key] = value;
   }
 
-  async ReadGroup(groupName) {
+  async ReadGroup(groupName, options = {}) {
     const group = registerGroups[groupName];
+    const isOptional = options.optional === true;
+    const backoffUntil = this.#optionalGroupBackoffUntil.get(groupName) ?? 0;
     const targets = {
       deviceInfo: this.#deviceInfo,
       runningData: this.#runningData,
@@ -442,8 +445,15 @@ class GoodWeUdp {
       return false;
     }
 
+    if (isOptional && backoffUntil > Date.now()) {
+      return false;
+    }
+
+    const previousStatus = this.#status;
+
     try {
       await this.#readRegisterGroup(group, targets[groupName]);
+      this.#optionalGroupBackoffUntil.delete(groupName);
 
       if (groupName === "runningData") {
         this.#runningData.TotalPowerPv =
@@ -455,6 +465,16 @@ class GoodWeUdp {
 
       return true;
     } catch (error) {
+      if (isOptional) {
+        this.#status = previousStatus;
+        this.#optionalGroupBackoffUntil.set(
+          groupName,
+          Date.now() + 60 * 60 * 1000,
+        );
+        this.log.debug?.(`${group.name}: ${error.message ?? error}`);
+        return false;
+      }
+
       this.log.warn(`${group.name}: ${error.message ?? error}`);
       return false;
     }
