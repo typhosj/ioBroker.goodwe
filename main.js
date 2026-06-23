@@ -26,6 +26,10 @@ const {
   validateIpv4Address,
 } = require("./lib/goodwe-discovery");
 
+const optionalDerivedStates = {
+  bmsInfoExtended: ["BMSInfo.WarningCodeActive", "BMSInfo.DRMStatusActive"],
+};
+
 class Goodwe extends utils.Adapter {
   interval;
   cycleCnt = 0;
@@ -290,17 +294,24 @@ class Goodwe extends utils.Adapter {
   }
 
   async CleanupDisabledOptionalStates() {
-    if (this.config.cleanupDisabledStates !== true) {
-      return;
-    }
+    const enabledChannels = new Set();
 
-    for (const [groupName, configKey] of Object.entries(optionalGroupConfigs)) {
-      if (
-        this.config.pollExtended !== false &&
-        this.config[configKey] === true
-      ) {
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
         continue;
       }
+
+      for (const channel of this.GetRegisterGroupChannels(group)) {
+        enabledChannels.add(channel);
+      }
+    }
+
+    for (const groupName of Object.keys(optionalGroupConfigs)) {
+      if (this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
+      const group = registerGroups[groupName];
 
       for (const item of registerGroups[groupName].entries) {
         const object = await this.getObjectAsync(item.state);
@@ -310,6 +321,43 @@ class Goodwe extends utils.Adapter {
           this.log.debug(`Deleted disabled optional state ${item.state}`);
         }
       }
+
+      for (const state of optionalDerivedStates[groupName] ?? []) {
+        await this.DeleteObjectIfExists(state);
+      }
+
+      for (const channel of this.GetRegisterGroupChannels(group)
+        .filter((channel) => !enabledChannels.has(channel))
+        .sort(
+          (left, right) => right.split(".").length - left.split(".").length,
+        )) {
+        await this.DeleteObjectIfExists(channel);
+      }
+    }
+  }
+
+  GetRegisterGroupChannels(group) {
+    const channels = new Set([group.channel]);
+
+    for (const item of group.entries) {
+      const parts = item.state.split(".");
+      parts.pop();
+
+      while (parts.length > 0) {
+        channels.add(parts.join("."));
+        parts.pop();
+      }
+    }
+
+    return Array.from(channels);
+  }
+
+  async DeleteObjectIfExists(id) {
+    const object = await this.getObjectAsync(id);
+
+    if (object) {
+      await this.delObjectAsync(id);
+      this.log.debug(`Deleted disabled optional object ${id}`);
     }
   }
 
@@ -343,9 +391,11 @@ class Goodwe extends utils.Adapter {
       "RunningData.BackUpL2.ModeText",
       "RunningData.BackUpL3.ModeText",
       "BMSInfo.ErrorCodeActive",
-      "BMSInfo.WarningCodeActive",
-      "BMSInfo.DRMStatusActive",
     ];
+
+    if (this.IsRegisterGroupEnabled("bmsInfoExtended")) {
+      states.push(...optionalDerivedStates.bmsInfoExtended);
+    }
 
     for (const state of states) {
       await this.setObjectNotExistsAsync(state, {
@@ -468,6 +518,11 @@ class Goodwe extends utils.Adapter {
       decodeBitfield(errorCode, bitfields.bmsAlarm).join(", "),
       true,
     );
+
+    if (!this.IsRegisterGroupEnabled("bmsInfoExtended")) {
+      return;
+    }
+
     await this.setStateAsync(
       "BMSInfo.WarningCodeActive",
       decodeBitfield(warningCode, bitfields.bmsWarning).join(", "),

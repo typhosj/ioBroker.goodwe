@@ -64,7 +64,6 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollBmsDetail`: Enables BMS detail registers, if supported by the inverter.
 * `pollCeiAutoTest`: Enables CEI auto test registers.
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
-* `cleanupDisabledStates`: Deletes states of disabled optional register groups on adapter start.
 
 The basic settings page also provides discovery helpers:
 The basic settings page also provides discovery helpers:
@@ -83,7 +82,7 @@ Known model-dependent groups:
 * `pollPowerLimit`: often unsupported on devices that do not expose power-limit telemetry.
 * `pollCeiAutoTest`: can provide values on devices/firmware that support CEI auto test data.
 
-If logs show optional register timeouts, disable the matching group in the advanced settings. Enable `cleanupDisabledStates` once and restart the adapter to remove states from disabled optional groups.
+If logs show optional register timeouts, disable the matching group in the advanced settings. Disabled optional register states are removed on adapter start.
 
 For unstable network connections, increase `timeoutMs` first. Increase `retries` only when the inverter occasionally misses packets, because retries also lengthen one poll cycle.
 
