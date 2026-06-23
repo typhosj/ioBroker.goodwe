@@ -1,6 +1,6 @@
 {
   "name": "iobroker.goodwe",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "description": "Communication with GoodWe Inverter ET/EH/BH/BT Series",
   "author": {
     "name": "Thomas Schönberger",
@@ -74,7 +74,7 @@
     "release-major": "release-script major -- yes"
   },
   "bugs": {
-    "url": "https://github.com/FossyTom/ioBroker.goodwe/issues"
+    "url": "https://github.com/typhosj/ioBroker.goodwe/issues"
   },
   "readmeFilename": "README.md"
 }

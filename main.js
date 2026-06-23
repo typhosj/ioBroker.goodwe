@@ -8,8 +8,27 @@
 // you need to create an adapter
 const utils = require("@iobroker/adapter-core");
 const goodWe = require("./GoodWe/GoodWe");
+const {
+  optionalGroupConfigs,
+  registerGroups,
+  TYPE,
+} = require("./lib/register-map");
+const {
+  bitfields,
+  decodeBitfield,
+  decodeValue,
+  valueStates,
+} = require("./lib/status-definitions");
+const {
+  discoverGoodWeInverters,
+  extractIpv4Address,
+  probeGoodWeInverter,
+  validateIpv4Address,
+} = require("./lib/goodwe-discovery");
 
-let tmr_timeout = null;
+const optionalDerivedStates = {
+  bmsInfoExtended: ["BMSInfo.WarningCodeActive", "BMSInfo.DRMStatusActive"],
+};
 
 class Goodwe extends utils.Adapter {
   interval;
@@ -25,7 +44,9 @@ class Goodwe extends utils.Adapter {
     });
 
     this.inverter = new goodWe.GoodWeUdp(this.log);
+    this.pollTimer = undefined;
     this.on("ready", this.onReady.bind(this));
+    this.on("message", this.onMessage.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
@@ -36,15 +57,36 @@ class Goodwe extends utils.Adapter {
   async onReady() {
     // Initialize your adapter here
     this.inverter = new goodWe.GoodWeUdp(this.log);
-    this.CreateObjectsDeviceInfo();
-    this.CreateObjectsRunningData();
-    this.CreateObjectsExtComData();
-    this.CreateObjectsBmsInfo();
+    await this.DeleteLegacyTypoStates();
+    await this.CleanupDisabledOptionalStates();
+    await this.CreateObjectsFromRegisterMap();
+    await this.CreateDerivedObjects();
+    await this.CreateDecodedStatusObjects();
 
     // Reset the connection indicator during startup
     this.setState("info.connection", false, true);
 
-    this.inverter.Connect(this.config.ipAddr, 8899);
+    const configuredIp = extractIpv4Address(this.config.ipAddr);
+
+    if (configuredIp === "") {
+      this.log.warn("No inverter IP address configured yet");
+      return;
+    }
+
+    this.config.ipAddr = configuredIp;
+    const ipValidation = validateIpv4Address(this.config.ipAddr);
+
+    if (!ipValidation.valid) {
+      this.log.error(
+        `Invalid inverter IP address "${this.config.ipAddr}": ${ipValidation.reason}`,
+      );
+      return;
+    }
+
+    await this.inverter.Connect(this.config.ipAddr, 8899, {
+      timeoutMs: this.config.timeoutMs,
+      retries: this.config.retries,
+    });
 
     this.myTimer();
   }
@@ -56,7 +98,10 @@ class Goodwe extends utils.Adapter {
    */
   onUnload(callback) {
     try {
-      this.clearTimeout(tmr_timeout);
+      if (this.pollTimer) {
+        this.clearTimeout(this.pollTimer);
+      }
+      this.inverter.destructor();
 
       callback();
     } catch (e) {
@@ -81,1054 +126,531 @@ class Goodwe extends utils.Adapter {
     }
   }
 
-  CreateObjectsDeviceInfo() {
-    this.setObjectNotExistsAsync("DeviceInfo", {
-      type: "channel",
-      common: { name: "DeviceInfo" },
-      native: {},
-    });
+  async onMessage(obj) {
+    if (!obj?.command) {
+      return;
+    }
 
-    this.CreateObjectStateNumber("DeviceInfo", "ModbusProtocolVersion");
-    this.CreateObjectStateNumber("DeviceInfo", "RatedPower");
-    this.CreateObjectStateNumber("DeviceInfo", "AcOutputType");
-    this.CreateObjectStateString("DeviceInfo", "SerialNumber");
-    this.CreateObjectStateString("DeviceInfo", "DeviceType");
-    this.CreateObjectStateNumber("DeviceInfo", "DSP1_SW_Version");
-    this.CreateObjectStateNumber("DeviceInfo", "DSP2_SW_Version");
-    this.CreateObjectStateNumber("DeviceInfo", "DSP_SVN_Version");
-    this.CreateObjectStateNumber("DeviceInfo", "ARM_SW_Version");
-    this.CreateObjectStateNumber("DeviceInfo", "ARM_SVN_Version");
-    this.CreateObjectStateString("DeviceInfo", "DSP_Int_FW_Version");
-    this.CreateObjectStateString("DeviceInfo", "ARM_Int_FW_Version");
+    const respond = (payload) => {
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, payload, obj.callback);
+      }
+    };
+
+    try {
+      switch (obj.command) {
+        case "validateIp": {
+          const ip = this.GetConfiguredIp(obj.message?.ip);
+          const validation = validateIpv4Address(ip);
+
+          if (!validation.valid) {
+            respond({
+              valid: false,
+              reachable: false,
+              error: validation.reason,
+            });
+            return;
+          }
+
+          const result = await probeGoodWeInverter(validation.ip, {
+            timeoutMs: Number(obj.message?.timeoutMs) || 1000,
+          });
+
+          respond({
+            valid: true,
+            reachable: result.reachable,
+            ip: validation.ip,
+            idInfo: result.idInfo,
+            error: result.error,
+          });
+          return;
+        }
+
+        case "discoverInverters": {
+          const result = await discoverGoodWeInverters({
+            ip: this.GetConfiguredIp(obj.message?.ip),
+            subnet: this.GetConfiguredSubnet(obj.message?.subnet),
+            timeoutMs: Number(obj.message?.timeoutMs) || 700,
+            concurrency: Number(obj.message?.concurrency) || undefined,
+          });
+
+          respond(result);
+          return;
+        }
+
+        default:
+          respond({ error: `Unknown command: ${obj.command}` });
+      }
+    } catch (error) {
+      respond({ error: error.message ?? String(error) });
+    }
   }
 
-  CreateObjectsRunningData() {
-    this.setObjectNotExistsAsync("RunningData", {
-      type: "channel",
-      common: { name: "RunningData" },
-      native: {},
-    });
+  GetConfiguredIp(messageIp) {
+    const ipFromMessage = extractIpv4Address(messageIp);
 
-    this.CreateObjectsDcParameters("RunningData", "PV1");
-    this.CreateObjectsDcParameters("RunningData", "PV2");
-    this.CreateObjectsDcParameters("RunningData", "PV3");
-    this.CreateObjectsDcParameters("RunningData", "PV4");
-    this.CreateObjectsAcPhase("RunningData", "GridL1");
-    this.CreateObjectsAcPhase("RunningData", "GridL2");
-    this.CreateObjectsAcPhase("RunningData", "GridL3");
-    this.CreateObjectStateNumber("RunningData", "GridMode");
-    this.CreateObjectStateNumber("RunningData", "InverterTotalPower");
-    this.CreateObjectStateNumber("RunningData", "AcActivePower");
-    this.CreateObjectStateNumber("RunningData", "AcReactivePower");
-    this.CreateObjectStateNumber("RunningData", "AcApparentPower");
-    this.CreateObjectsPhaseBackUp("RunningData", "BackUpL1");
-    this.CreateObjectsPhaseBackUp("RunningData", "BackUpL2");
-    this.CreateObjectsPhaseBackUp("RunningData", "BackUpL3");
-    this.CreateObjectStateNumber("RunningData", "PowerL1");
-    this.CreateObjectStateNumber("RunningData", "PowerL2");
-    this.CreateObjectStateNumber("RunningData", "PowerL3");
-    this.CreateObjectStateNumber("RunningData", "TotalPowerBackUp");
-    this.CreateObjectStateNumber("RunningData", "TotalPower");
-    this.CreateObjectStateNumber("RunningData", "UpsLoadPercent");
-    this.CreateObjectStateNumber("RunningData", "AirTemperature");
-    this.CreateObjectStateNumber("RunningData", "ModulTemperature");
-    this.CreateObjectStateNumber("RunningData", "RadiatorTemperature");
-    this.CreateObjectStateNumber("RunningData", "FunctionBitValue");
-    this.CreateObjectStateNumber("RunningData", "BusVoltage");
-    this.CreateObjectStateNumber("RunningData", "NbusVoltage");
-    this.CreateObjectsDcParameters("RunningData", "Battery1");
-    this.CreateObjectStateNumber("RunningData", "WarningCode");
-    this.CreateObjectStateNumber("RunningData", "SaftyCountry");
-    this.CreateObjectStateNumber("RunningData", "WorkMode");
-    this.CreateObjectStateNumber("RunningData", "OperationMode");
-    this.CreateObjectStateNumber("RunningData", "ErrorMessage");
-    this.CreateObjectStateNumber("RunningData", "PvEnergyTotal");
-    this.CreateObjectStateNumber("RunningData", "PvEnergyDay");
-    this.CreateObjectStateNumber("RunningData", "EnergyTotal");
-    this.CreateObjectStateNumber("RunningData", "HoursTotal");
-    this.CreateObjectStateNumber("RunningData", "EnergyDaySell");
-    this.CreateObjectStateNumber("RunningData", "EnergyTotalBuy");
-    this.CreateObjectStateNumber("RunningData", "EnergyDayBuy");
-    this.CreateObjectStateNumber("RunningData", "EnergyTotalLoad");
-    this.CreateObjectStateNumber("RunningData", "EnergyDayLoad");
-    this.CreateObjectStateNumber("RunningData", "EnergyBatteryCharge");
-    this.CreateObjectStateNumber("RunningData", "EnergyDayCharge");
-    this.CreateObjectStateNumber("RunningData", "EnergyBatteryDischarge");
-    this.CreateObjectStateNumber("RunningData", "EnergyDayDischarge");
-    this.CreateObjectStateNumber("RunningData", "BatteryStrings");
-    this.CreateObjectStateNumber("RunningData", "CpldWarningCode");
-    this.CreateObjectStateNumber("RunningData", "WChargeCtrFlag");
-    //this.CreateObjectStateNumber("RunningData", "DerateFlag");
-    this.CreateObjectStateNumber("RunningData", "DerateFrozenPower");
-    this.CreateObjectStateNumber("RunningData", "DiagStatusH");
-    this.CreateObjectStateNumber("RunningData", "DiagStatusL");
-    this.CreateObjectStateNumber("RunningData", "TotalPowerPv");
+    if (ipFromMessage !== "") {
+      return ipFromMessage;
+    }
+
+    return extractIpv4Address(this.config.ipAddr);
   }
 
-  CreateObjectsExtComData() {
-    this.setObjectNotExistsAsync("ExtComData", {
-      type: "channel",
-      common: { name: "ExtComData" },
-      native: {},
-    });
+  GetConfiguredSubnet(messageSubnet) {
+    if (typeof messageSubnet === "string" && messageSubnet.trim() !== "") {
+      return messageSubnet.trim();
+    }
 
-    this.CreateObjectStateNumber("ExtComData", "Commode");
-    this.CreateObjectStateNumber("ExtComData", "Rssi");
-    this.CreateObjectStateNumber("ExtComData", "ManufacturerCode");
-    this.CreateObjectStateNumber("ExtComData", "MeterConnectStatus");
-    this.CreateObjectStateNumber("ExtComData", "MeterCommunicateStatus");
-    this.CreateObjectMeterPhase("ExtComData", "L1");
-    this.CreateObjectMeterPhase("ExtComData", "L2");
-    this.CreateObjectMeterPhase("ExtComData", "L3");
-    this.CreateObjectStateNumber("ExtComData", "TotalActivePower");
-    this.CreateObjectStateNumber("ExtComData", "TotalReactivePower");
-    this.CreateObjectStateNumber("ExtComData", "PowerFactor");
-    this.CreateObjectStateNumber("ExtComData", "Frequency");
-    this.CreateObjectStateNumber("ExtComData", "EnergyTotalSell");
-    this.CreateObjectStateNumber("ExtComData", "EnergyTotalBuy");
+    if (
+      typeof this.config.discoverySubnet === "string" &&
+      this.config.discoverySubnet.trim() !== ""
+    ) {
+      return this.config.discoverySubnet.trim();
+    }
+
+    return undefined;
   }
 
-  CreateObjectsBmsInfo() {
-    this.setObjectNotExistsAsync("BMSInfo", {
-      type: "channel",
-      common: { name: "ExtComData" },
-      native: {},
-    });
+  async CreateObjectsFromRegisterMap() {
+    const channels = new Set();
 
-    this.CreateObjectStateNumber("BMSInfo", "Status");
-    this.CreateObjectStateNumber("BMSInfo", "PackTemperature");
-    this.CreateObjectStateNumber("BMSInfo", "CurrentMaxCharge");
-    this.CreateObjectStateNumber("BMSInfo", "CurrentMaxDischarge");
-    this.CreateObjectStateNumber("BMSInfo", "ErrorCode");
-    this.CreateObjectStateNumber("BMSInfo", "SOC");
-    this.CreateObjectStateNumber("BMSInfo", "SOH");
-    this.CreateObjectStateNumber("BMSInfo", "BatteryStrings");
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
+      channels.add(group.channel);
+
+      for (const item of group.entries) {
+        const parts = item.state.split(".");
+        parts.pop();
+
+        while (parts.length > 0) {
+          channels.add(parts.join("."));
+          parts.pop();
+        }
+      }
+    }
+
+    for (const channel of channels) {
+      await this.setObjectNotExistsAsync(channel, {
+        type: "channel",
+        common: { name: channel.split(".").pop() },
+        native: {},
+      });
+    }
+
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
+      for (const item of group.entries) {
+        await this.setObjectNotExistsAsync(item.state, {
+          type: "state",
+          common: {
+            name: item.state.split(".").pop(),
+            type: item.type === TYPE.STRING ? "string" : "number",
+            role: item.type === TYPE.STRING ? "text" : item.role,
+            read: true,
+            write: false,
+            unit: item.unit,
+          },
+          native: {
+            address: item.address,
+            type: item.type,
+            scale: item.scale,
+          },
+        });
+      }
+    }
   }
 
-  CreateObjectStateNumber(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
+  async CreateDerivedObjects() {
+    await this.setObjectNotExistsAsync("RunningData.TotalPowerPv", {
       type: "state",
       common: {
-        name: Name,
+        name: "TotalPowerPv",
         type: "number",
-        role: "value",
+        role: "value.power",
         read: true,
         write: false,
-      },
-      native: {},
-    });
-  }
-
-  CreateObjectStateString(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
-      type: "state",
-      common: {
-        name: "Name",
-        type: "string",
-        role: "text",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-  }
-
-  CreateObjectsDcParameters(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
-      type: "channel",
-      common: { name: "Name" },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Voltage`, {
-      type: "state",
-      common: {
-        name: "Voltage",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Current`, {
-      type: "state",
-      common: {
-        name: "Current",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Power`, {
-      type: "state",
-      common: {
-        name: "Power",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Mode`, {
-      type: "state",
-      common: {
-        name: "Mode",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
+        unit: "W",
       },
       native: {},
     });
   }
 
-  CreateObjectsAcPhase(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
-      type: "channel",
-      common: { name: "Name" },
-      native: {},
-    });
+  IsRegisterGroupEnabled(groupName) {
+    const configKey = optionalGroupConfigs[groupName];
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Voltage`, {
-      type: "state",
-      common: {
-        name: "Voltage",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+    if (!configKey) {
+      return true;
+    }
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Current`, {
-      type: "state",
-      common: {
-        name: "Current",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Frequency`, {
-      type: "state",
-      common: {
-        name: "Frequency",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Power`, {
-      type: "state",
-      common: {
-        name: "Power",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+    return (
+      this.config.pollExtended !== false && this.config[configKey] === true
+    );
   }
 
-  CreateObjectsPhaseBackUp(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
-      type: "channel",
-      common: { name: "Name" },
-      native: {},
-    });
+  async CleanupDisabledOptionalStates() {
+    const enabledChannels = new Set();
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Voltage`, {
-      type: "state",
-      common: {
-        name: "Voltage",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Current`, {
-      type: "state",
-      common: {
-        name: "Current",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+      for (const channel of this.GetRegisterGroupChannels(group)) {
+        enabledChannels.add(channel);
+      }
+    }
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Frequency`, {
-      type: "state",
-      common: {
-        name: "Frequency",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+    for (const groupName of Object.keys(optionalGroupConfigs)) {
+      if (this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Power`, {
-      type: "state",
-      common: {
-        name: "Power",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+      const group = registerGroups[groupName];
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.Mode`, {
-      type: "state",
-      common: {
-        name: "Mode",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+      for (const item of registerGroups[groupName].entries) {
+        const object = await this.getObjectAsync(item.state);
+
+        if (object) {
+          await this.delObjectAsync(item.state);
+          this.log.debug(`Deleted disabled optional state ${item.state}`);
+        }
+      }
+
+      for (const state of optionalDerivedStates[groupName] ?? []) {
+        await this.DeleteObjectIfExists(state);
+      }
+
+      for (const channel of this.GetRegisterGroupChannels(group)
+        .filter((channel) => !enabledChannels.has(channel))
+        .sort(
+          (left, right) => right.split(".").length - left.split(".").length,
+        )) {
+        await this.DeleteObjectIfExists(channel);
+      }
+    }
   }
 
-  CreateObjectMeterPhase(Path, Name) {
-    this.setObjectNotExistsAsync(`${Path}.${Name}`, {
-      type: "channel",
-      common: { name: Name },
-      native: {},
-    });
+  GetRegisterGroupChannels(group) {
+    const channels = new Set([group.channel]);
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.ActivePower`, {
-      type: "state",
-      common: {
-        name: "ActivePower",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+    for (const item of group.entries) {
+      const parts = item.state.split(".");
+      parts.pop();
 
-    this.setObjectNotExistsAsync(`${Path}.${Name}.PowerFactor`, {
-      type: "state",
-      common: {
-        name: "PowerFactor",
-        type: "number",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
+      while (parts.length > 0) {
+        channels.add(parts.join("."));
+        parts.pop();
+      }
+    }
+
+    return Array.from(channels);
   }
 
-  UpdateDeviceInfo() {
-    this.inverter.ReadDeviceInfo();
+  async DeleteObjectIfExists(id) {
+    const object = await this.getObjectAsync(id);
 
-    this.setStateAsync(
-      "DeviceInfo.ModbusProtocolVersion",
-      this.inverter.DeviceInfo.ModbusProtocolVersion,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.RatedPower",
-      this.inverter.DeviceInfo.RatedPower,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.AcOutputType",
-      this.inverter.DeviceInfo.AcOutputType,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.SerialNumber",
-      this.inverter.DeviceInfo.SerialNumber,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.DeviceType",
-      this.inverter.DeviceInfo.DeviceType,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.DSP1_SW_Version",
-      this.inverter.DeviceInfo.DSP1_SoftwareVersion,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.DSP2_SW_Version",
-      this.inverter.DeviceInfo.DSP2_SoftwareVersion,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.DSP_SVN_Version",
-      this.inverter.DeviceInfo.DSP_SVN_Version,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.ARM_SW_Version",
-      this.inverter.DeviceInfo.ARM_SoftwareVersion,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.ARM_SVN_Version",
-      this.inverter.DeviceInfo.ARM_SVN_Version,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.DSP_Int_FW_Version",
-      this.inverter.DeviceInfo.DSP_IntFirmwareVersion,
-      true,
-    );
-    this.setStateAsync(
-      "DeviceInfo.ARM_Int_FW_Version",
-      this.inverter.DeviceInfo.ARM_IntFirmwareVersion,
-      true,
-    );
-
-    this.setStateAsync("info.connection", this.inverter.Status, true);
+    if (object) {
+      await this.delObjectAsync(id);
+      this.log.debug(`Deleted disabled optional object ${id}`);
+    }
   }
 
-  UpdateRunningData() {
-    this.inverter.ReadRunningData();
-
-    this.setStateAsync(
-      "RunningData.PV1.Voltage",
-      this.inverter.RunningData.Pv1.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Current",
-      this.inverter.RunningData.Pv1.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Power",
-      this.inverter.RunningData.Pv1.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Mode",
-      this.inverter.RunningData.Pv1.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV2.Voltage",
-      this.inverter.RunningData.Pv2.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV2.Current",
-      this.inverter.RunningData.Pv2.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV2.Power",
-      this.inverter.RunningData.Pv2.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV2.Mode",
-      this.inverter.RunningData.Pv2.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV3.Voltage",
-      this.inverter.RunningData.Pv3.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV3.Current",
-      this.inverter.RunningData.Pv3.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV3.Power",
-      this.inverter.RunningData.Pv3.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV3.Mode",
-      this.inverter.RunningData.Pv3.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV4.Voltage",
-      this.inverter.RunningData.Pv4.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV4.Current",
-      this.inverter.RunningData.Pv4.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV4.Power",
-      this.inverter.RunningData.Pv4.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV4.Mode",
-      this.inverter.RunningData.Pv4.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Voltage",
-      this.inverter.RunningData.Pv1.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Current",
-      this.inverter.RunningData.Pv1.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PV1.Power",
-      this.inverter.RunningData.Pv1.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL1.Voltage",
-      this.inverter.RunningData.GridL1.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL1.Current",
-      this.inverter.RunningData.GridL1.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL1.Frequency",
-      this.inverter.RunningData.GridL1.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL1.Power",
-      this.inverter.RunningData.GridL1.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL2.Voltage",
-      this.inverter.RunningData.GridL2.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL2.Current",
-      this.inverter.RunningData.GridL2.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL2.Frequency",
-      this.inverter.RunningData.GridL2.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL2.Power",
-      this.inverter.RunningData.GridL2.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL3.Voltage",
-      this.inverter.RunningData.GridL3.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL3.Current",
-      this.inverter.RunningData.GridL3.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL3.Frequency",
-      this.inverter.RunningData.GridL3.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridL3.Power",
-      this.inverter.RunningData.GridL3.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.GridMode",
-      this.inverter.RunningData.GridMode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.InverterTotalPower",
-      this.inverter.RunningData.InverterTotalPower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.AcActivePower",
-      this.inverter.RunningData.AcActivePower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.AcReactivePower",
-      this.inverter.RunningData.AcReactivePower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.AcApparentPower",
-      this.inverter.RunningData.AcApparentPower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL1.Voltage",
-      this.inverter.RunningData.BackUpL1.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL1.Current",
-      this.inverter.RunningData.BackUpL1.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL1.Frequency",
-      this.inverter.RunningData.BackUpL1.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL1.Power",
-      this.inverter.RunningData.BackUpL1.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL1.Mode",
-      this.inverter.RunningData.BackUpL1.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL2.Voltage",
-      this.inverter.RunningData.BackUpL2.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL2.Current",
-      this.inverter.RunningData.BackUpL2.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL2.Frequency",
-      this.inverter.RunningData.BackUpL2.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL2.Power",
-      this.inverter.RunningData.BackUpL2.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL2.Mode",
-      this.inverter.RunningData.BackUpL2.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL3.Voltage",
-      this.inverter.RunningData.BackUpL3.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL3.Current",
-      this.inverter.RunningData.BackUpL3.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL3.Frequency",
-      this.inverter.RunningData.BackUpL3.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL3.Power",
-      this.inverter.RunningData.BackUpL3.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BackUpL3.Mode",
-      this.inverter.RunningData.BackUpL3.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PowerL1",
-      this.inverter.RunningData.PowerL1,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PowerL2",
-      this.inverter.RunningData.PowerL2,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.PowerL3",
-      this.inverter.RunningData.PowerL3,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.TotalPowerBackUp",
-      this.inverter.RunningData.TotalPowerBackUp,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.TotalPower",
-      this.inverter.RunningData.TotalPower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.UpsLoadPercent",
-      this.inverter.RunningData.UpsLoadPercent,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.AirTemperature",
-      this.inverter.RunningData.AirTemperature,
-      true,
-    );
-    this.setStateAsync(
+  async DeleteLegacyTypoStates() {
+    for (const state of [
       "RunningData.ModulTemperature",
-      this.inverter.RunningData.ModulTemperature,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.RadiatorTemperature",
-      this.inverter.RunningData.RadiatorTemperature,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.FunctionBitValue",
-      this.inverter.RunningData.FunctionBitValue,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BusVoltage",
-      this.inverter.RunningData.BusVoltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.NbusVoltage",
-      this.inverter.RunningData.NbusVoltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.Battery1.Voltage",
-      this.inverter.RunningData.Battery1.Voltage,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.Battery1.Current",
-      this.inverter.RunningData.Battery1.Current,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.Battery1.Power",
-      this.inverter.RunningData.Battery1.Power,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.Battery1.Mode",
-      this.inverter.RunningData.Battery1.Mode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.WarningCode",
-      this.inverter.RunningData.WarningCode,
-      true,
-    );
-    this.setStateAsync(
       "RunningData.SaftyCountry",
-      this.inverter.RunningData.SaftyCountry,
+    ]) {
+      const object = await this.getObjectAsync(state);
+
+      if (object) {
+        await this.delObjectAsync(state);
+        this.log.info(`Deleted legacy typo state ${state}`);
+      }
+    }
+  }
+
+  async CreateDecodedStatusObjects() {
+    const states = [
+      "RunningData.GridModeText",
+      "RunningData.WorkModeText",
+      "RunningData.OperationModeText",
+      "RunningData.ErrorMessageActive",
+      "RunningData.DiagStatusActive",
+      "RunningData.PV1.ModeText",
+      "RunningData.PV2.ModeText",
+      "RunningData.PV3.ModeText",
+      "RunningData.PV4.ModeText",
+      "RunningData.Battery1.ModeText",
+      "RunningData.BackUpL1.ModeText",
+      "RunningData.BackUpL2.ModeText",
+      "RunningData.BackUpL3.ModeText",
+      "BMSInfo.ErrorCodeActive",
+    ];
+
+    if (this.IsRegisterGroupEnabled("bmsInfoExtended")) {
+      states.push(...optionalDerivedStates.bmsInfoExtended);
+    }
+
+    for (const state of states) {
+      await this.setObjectNotExistsAsync(state, {
+        type: "state",
+        common: {
+          name: state.split(".").pop() ?? state,
+          type: "string",
+          role: "text",
+          read: true,
+          write: false,
+        },
+        native: {},
+      });
+    }
+  }
+
+  async UpdateStatesFromRegisterMap(group) {
+    for (const item of group.entries) {
+      await this.setStateAsync(
+        item.state,
+        this.GetMappedValue(item.model, this.inverter[this.GroupGetter(group)]),
+        true,
+      );
+    }
+  }
+
+  GroupGetter(group) {
+    switch (group.name) {
+      case "DeviceInfo":
+        return "DeviceInfo";
+      case "RunningData":
+        return "RunningData";
+      case "ExtComData":
+        return "ExtComData";
+      case "BMSInfo":
+        return "BmsInfo";
+      case "DeviceInfo.SIMCCID":
+        return "DeviceInfo";
+      case "ExtComData.Extended":
+        return "ExtComData";
+      case "FlashInfo":
+        return "FlashInfo";
+      case "BMSInfo.Extended":
+        return "BmsInfo";
+      case "BMSDetail":
+        return "BmsDetail";
+      case "CEIAutoTest":
+        return "CeiAutoTest";
+      case "PowerLimit":
+        return "PowerLimit";
+      default:
+        return "";
+    }
+  }
+
+  GetMappedValue(path, source) {
+    return path.split(".").reduce((current, part) => current?.[part], source);
+  }
+
+  async UpdateDecodedRunningStatuses() {
+    const data = this.inverter.RunningData;
+
+    await this.setStateAsync(
+      "RunningData.GridModeText",
+      decodeValue(data.GridMode, valueStates.gridStatus),
       true,
     );
-    this.setStateAsync(
-      "RunningData.WorkMode",
-      this.inverter.RunningData.WorkMode,
+    await this.setStateAsync(
+      "RunningData.WorkModeText",
+      decodeValue(data.WorkMode, valueStates.workMode),
       true,
     );
-    this.setStateAsync(
-      "RunningData.OperationMode",
-      this.inverter.RunningData.OperationMode,
+    await this.setStateAsync(
+      "RunningData.OperationModeText",
+      decodeValue(data.OperationMode, valueStates.operationMode),
       true,
     );
-    this.setStateAsync(
-      "RunningData.ErrorMessage",
-      this.inverter.RunningData.ErrorMessage,
+    await this.setStateAsync(
+      "RunningData.Battery1.ModeText",
+      decodeValue(data.Battery1.Mode, valueStates.batteryStatus),
       true,
     );
-    this.setStateAsync(
-      "RunningData.PvEnergyTotal",
-      this.inverter.RunningData.PvEnergyTotal,
+
+    for (const pv of ["PV1", "PV2", "PV3", "PV4"]) {
+      await this.setStateAsync(
+        `RunningData.${pv}.ModeText`,
+        decodeValue(data[pv.replace("PV", "Pv")].Mode, valueStates.pvMode),
+        true,
+      );
+    }
+
+    for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"]) {
+      await this.setStateAsync(
+        `RunningData.${phase}.ModeText`,
+        decodeValue(data[phase].Mode, valueStates.backupStatus),
+        true,
+      );
+    }
+
+    await this.setStateAsync(
+      "RunningData.ErrorMessageActive",
+      decodeBitfield(data.ErrorMessage, bitfields.errorMessage).join(", "),
       true,
     );
-    this.setStateAsync(
-      "RunningData.PvEnergyDay",
-      this.inverter.RunningData.PvEnergyDay,
+    await this.setStateAsync(
+      "RunningData.DiagStatusActive",
+      decodeBitfield(data.DiagStatusL, bitfields.diagnosticStatus).join(", "),
       true,
     );
-    this.setStateAsync(
-      "RunningData.EnergyTotal",
-      this.inverter.RunningData.EnergyTotal,
+  }
+
+  async UpdateDecodedBmsStatuses() {
+    const bms = this.inverter.BmsInfo;
+    const errorCode = (bms.ErrorCodeH ?? 0) * 0x10000 + (bms.ErrorCode ?? 0);
+    const warningCode =
+      (bms.WarningCodeH ?? 0) * 0x10000 + (bms.WarningCodeL ?? 0);
+
+    await this.setStateAsync(
+      "BMSInfo.ErrorCodeActive",
+      decodeBitfield(errorCode, bitfields.bmsAlarm).join(", "),
       true,
     );
-    this.setStateAsync(
-      "RunningData.HoursTotal",
-      this.inverter.RunningData.HoursTotal,
+
+    if (!this.IsRegisterGroupEnabled("bmsInfoExtended")) {
+      return;
+    }
+
+    await this.setStateAsync(
+      "BMSInfo.WarningCodeActive",
+      decodeBitfield(warningCode, bitfields.bmsWarning).join(", "),
       true,
     );
-    this.setStateAsync(
-      "RunningData.EnergyDaySell",
-      this.inverter.RunningData.EnergyDaySell,
+    await this.setStateAsync(
+      "BMSInfo.DRMStatusActive",
+      decodeBitfield(bms.DRMStatus ?? 0, bitfields.drmStatus).join(", "),
       true,
     );
-    this.setStateAsync(
-      "RunningData.EnergyTotalBuy",
-      this.inverter.RunningData.EnergyTotalBuy,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyDayBuy",
-      this.inverter.RunningData.EnergyDayBuy,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyTotalLoad",
-      this.inverter.RunningData.EnergyTotalLoad,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyDayLoad",
-      this.inverter.RunningData.EnergyDayLoad,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyBatteryCharge",
-      this.inverter.RunningData.EnergyBatteryCharge,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyDayCharge",
-      this.inverter.RunningData.EnergyDayCharge,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyBatteryDischarge",
-      this.inverter.RunningData.EnergyBatteryDischarge,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.EnergyDayDischarge",
-      this.inverter.RunningData.EnergyDayDischarge,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.BatteryStrings",
-      this.inverter.RunningData.BatteryStrings,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.CpldWarningCode",
-      this.inverter.RunningData.CpldWarningCode,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.WChargeCtrFlag",
-      this.inverter.RunningData.WChargeCtrFlag,
-      true,
-    );
-    //this.setStateAsync("RunningData.DerateFlag", this.inverter.RunningData.DerateFlag, true);
-    this.setStateAsync(
-      "RunningData.DerateFrozenPower",
-      this.inverter.RunningData.DerateFrozenPower,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.DiagStatusH",
-      this.inverter.RunningData.DiagStatusH,
-      true,
-    );
-    this.setStateAsync(
-      "RunningData.DiagStatusL",
-      this.inverter.RunningData.DiagStatusL,
-      true,
-    );
-    this.setStateAsync(
+  }
+
+  async UpdateDeviceInfo() {
+    const success = await this.inverter.ReadGroup("deviceInfo");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.deviceInfo);
+    await this.setStateAsync("info.connection", this.inverter.Status, true);
+  }
+
+  async UpdateRunningData() {
+    const success = await this.inverter.ReadGroup("runningData");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.runningData);
+    await this.UpdateDecodedRunningStatuses();
+    await this.setStateAsync(
       "RunningData.TotalPowerPv",
       this.inverter.RunningData.TotalPowerPv,
       true,
     );
   }
 
-  UpdateExtComData() {
-    this.inverter.ReadExtComData();
+  async UpdateExtComData() {
+    const success = await this.inverter.ReadGroup("extComData");
 
-    this.setStateAsync(
-      "ExtComData.Commode",
-      this.inverter.ExtComData.Commode,
-      true,
-    );
-    this.setStateAsync("ExtComData.Rssi", this.inverter.ExtComData.Rssi, true);
-    this.setStateAsync(
-      "ExtComData.ManufacturerCode",
-      this.inverter.ExtComData.ManufacturerCode,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.MeterConnectStatus",
-      this.inverter.ExtComData.MeterConnectStatus,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.MeterCommunicateStatus",
-      this.inverter.ExtComData.MeterCommunicateStatus,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L1.ActivePower",
-      this.inverter.ExtComData.L1.ActivePower,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L1.PowerFactor",
-      this.inverter.ExtComData.L1.PowerFactor,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L2.ActivePower",
-      this.inverter.ExtComData.L2.ActivePower,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L2.PowerFactor",
-      this.inverter.ExtComData.L2.PowerFactor,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L3.ActivePower",
-      this.inverter.ExtComData.L3.ActivePower,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.L3.PowerFactor",
-      this.inverter.ExtComData.L3.PowerFactor,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.TotalActivePower",
-      this.inverter.ExtComData.TotalActivePower,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.TotalReactivePower",
-      this.inverter.ExtComData.TotalReactivePower,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.PowerFactor",
-      this.inverter.ExtComData.PowerFactor,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.Frequency",
-      this.inverter.ExtComData.Frequency,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.EnergyTotalSell",
-      this.inverter.ExtComData.EnergyTotalSell,
-      true,
-    );
-    this.setStateAsync(
-      "ExtComData.EnergyTotalBuy",
-      this.inverter.ExtComData.EnergyTotalBuy,
-      true,
-    );
-  }
-
-  UpdateBmsInfo() {
-    this.inverter.ReadBmsInfo();
-
-    this.setStateAsync("BMSInfo.Status", this.inverter.BmsInfo.Status, true);
-    this.setStateAsync(
-      "BMSInfo.PackTemperature",
-      this.inverter.BmsInfo.PackTemperature,
-      true,
-    );
-    this.setStateAsync(
-      "BMSInfo.CurrentMaxCharge",
-      this.inverter.BmsInfo.CurrentMaxCharge,
-      true,
-    );
-    this.setStateAsync(
-      "BMSInfo.CurrentMaxDischarge",
-      this.inverter.BmsInfo.CurrentMaxDischarge,
-      true,
-    );
-    this.setStateAsync(
-      "BMSInfo.ErrorCode",
-      this.inverter.BmsInfo.ErrorCode,
-      true,
-    );
-    this.setStateAsync("BMSInfo.SOC", this.inverter.BmsInfo.SOC, true);
-    this.setStateAsync("BMSInfo.SOH", this.inverter.BmsInfo.SOH, true);
-    this.setStateAsync(
-      "BMSInfo.BatteryStrings",
-      this.inverter.BmsInfo.BatteryStrings,
-      true,
-    );
-  }
-
-  myTimer() {
-    if (this.inverter.Status == false) {
-      this.cycleCnt = 0;
-      this.inverter.ReadIdInfo();
-    } else {
-      switch (this.cycleCnt) {
-        case 1:
-          this.UpdateDeviceInfo();
-          //this.log.info("Goodwe update");
-          break;
-
-        case 3:
-          this.UpdateRunningData();
-          break;
-
-        case 5:
-          this.UpdateExtComData();
-          break;
-
-        case 7:
-          this.UpdateBmsInfo();
-          break;
-      }
-
-      if (this.cycleCnt >= this.config.pollCycle) {
-        this.cycleCnt = 0;
-      }
-
-      this.cycleCnt++;
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
     }
 
-    tmr_timeout = this.setTimeout(() => this.myTimer(), 1000);
+    await this.UpdateStatesFromRegisterMap(registerGroups.extComData);
+  }
+
+  async UpdateBmsInfo() {
+    const success = await this.inverter.ReadGroup("bmsInfo");
+
+    if (!success) {
+      await this.setStateAsync("info.connection", false, true);
+      return;
+    }
+
+    await this.UpdateStatesFromRegisterMap(registerGroups.bmsInfo);
+    await this.UpdateDecodedBmsStatuses();
+  }
+
+  async UpdateAdditionalRegisterGroups() {
+    for (const groupName of Object.keys(optionalGroupConfigs)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
+      const group = registerGroups[groupName];
+      const success = await this.inverter.ReadGroup(groupName, {
+        optional: true,
+      });
+
+      if (success) {
+        await this.UpdateStatesFromRegisterMap(group);
+      }
+    }
+
+    await this.UpdateDecodedBmsStatuses();
+    await this.setStateAsync("info.connection", this.inverter.Status, true);
+  }
+
+  async myTimer() {
+    try {
+      if (this.inverter.Status == false) {
+        this.cycleCnt = 0;
+        const success = await this.inverter.ReadIdInfo();
+        await this.setStateAsync("info.connection", success, true);
+      } else {
+        switch (this.cycleCnt) {
+          case 1:
+            await this.UpdateDeviceInfo();
+            //this.log.info("Goodwe update");
+            break;
+
+          case 3:
+            await this.UpdateRunningData();
+            break;
+
+          case 5:
+            await this.UpdateExtComData();
+            break;
+
+          case 7:
+            await this.UpdateBmsInfo();
+            break;
+
+          case 9:
+            if (this.config.pollExtended !== false) {
+              await this.UpdateAdditionalRegisterGroups();
+            }
+            break;
+        }
+
+        if (this.cycleCnt >= this.config.pollCycle) {
+          this.cycleCnt = 0;
+        }
+
+        this.cycleCnt++;
+      }
+    } catch (error) {
+      this.log.warn(`poll cycle failed: ${error.message ?? error}`);
+      await this.setStateAsync("info.connection", false, true);
+    } finally {
+      this.pollTimer = this.setTimeout(() => this.myTimer(), 1000);
+    }
   }
 }
 

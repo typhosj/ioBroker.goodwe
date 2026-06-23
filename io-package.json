@@ -1,8 +1,47 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.6",
+    "version": "1.0.9",
     "news": {
+      "1.0.9": {
+        "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery and selectable inverter list",
+        "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche mit auswählbarer Wechselrichterliste ergänzt",
+        "ru": "Добавлена проверка IPv4-адреса инвертора\nДобавлена проверка доступности GoodWe по UDP\nДобавлен поиск в сети со списком выбора инверторов",
+        "pt": "Adicionada validação IPv4 do inversor\nAdicionada verificação de disponibilidade GoodWe via UDP\nAdicionada descoberta de rede com lista selecionável de inversores",
+        "nl": "IPv4-validatie voor de omvormer toegevoegd\nGoodWe UDP-bereikbaarheidscontrole toegevoegd\nNetwerkdetectie met selecteerbare omvormerlijst toegevoegd",
+        "fr": "Ajout de la validation IPv4 de l'onduleur\nAjout d'un contrôle d'accessibilité UDP GoodWe\nAjout de la découverte réseau avec liste d'onduleurs sélectionnable",
+        "it": "Aggiunta validazione IPv4 dell'inverter\nAggiunto controllo di raggiungibilità UDP GoodWe\nAggiunta ricerca in rete con lista inverter selezionabile",
+        "es": "Añadida validación IPv4 del inversor\nAñadida comprobación de disponibilidad UDP GoodWe\nAñadida búsqueda en red con lista seleccionable de inversores",
+        "pl": "Dodano walidację adresu IPv4 falownika\nDodano sprawdzanie dostępności GoodWe przez UDP\nDodano wykrywanie w sieci z wybieralną listą falowników",
+        "uk": "Додано перевірку IPv4-адреси інвертора\nДодано перевірку доступності GoodWe через UDP\nДодано пошук у мережі зі списком вибору інверторів",
+        "zh-cn": "新增逆变器 IPv4 地址校验\n新增 GoodWe UDP 可达性检查\n新增网络发现和可选逆变器列表"
+      },
+      "1.0.8": {
+        "en": "Added basic and advanced configuration tabs\nAdded per-group optional register polling defaults\nRemoved legacy misspelled states and cleaned up old decoder code",
+        "de": "Basis- und Erweiterte-Einstellungen als Tabs ergänzt\nOptionale Registergruppen einzeln konfigurierbar gemacht\nAlte falsch geschriebene States entfernt und alten Decoder-Code bereinigt",
+        "ru": "Добавлены вкладки базовых и расширенных настроек\nДобавлена отдельная настройка опроса необязательных групп регистров\nУдалены старые состояния с ошибками в названиях и очищен старый код декодера",
+        "pt": "Adicionadas abas de configurações básicas e avançadas\nAdicionada configuração individual para grupos opcionais de registros\nRemovidos estados antigos com nomes incorretos e limpo código antigo de decodificação",
+        "nl": "Tabbladen voor basis- en geavanceerde instellingen toegevoegd\nOptionele registergroepen afzonderlijk configureerbaar gemaakt\nOude fout gespelde states verwijderd en oude decodercode opgeschoond",
+        "fr": "Ajout d'onglets de configuration de base et avancée\nAjout de réglages par groupe pour les registres optionnels\nSuppression des anciens états mal orthographiés et nettoyage de l'ancien décodeur",
+        "it": "Aggiunte schede di configurazione di base e avanzata\nAggiunta configurazione separata per gruppi di registri opzionali\nRimossi vecchi stati con errori di ortografia e ripulito il vecchio decoder",
+        "es": "Añadidas pestañas de configuración básica y avanzada\nAñadida configuración individual para grupos de registros opcionales\nEliminados estados antiguos mal escritos y limpiado el código decodificador antiguo",
+        "pl": "Dodano karty ustawień podstawowych i zaawansowanych\nDodano osobną konfigurację opcjonalnych grup rejestrów\nUsunięto stare błędnie nazwane stany i wyczyszczono stary kod dekodera",
+        "uk": "Додано вкладки базових і розширених налаштувань\nДодано окреме налаштування опитування необов'язкових груп регістрів\nВидалено старі стани з помилками в назвах і очищено старий код декодера",
+        "zh-cn": "添加了基础和高级配置标签页\n为可选寄存器组添加了单独的轮询配置\n移除了旧的拼写错误状态并清理了旧的解码代码"
+      },
+      "1.0.7": {
+        "en": "Hardened UDP communication\nAdded specification based register map and extended GoodWe data points\nAdded decoded status and bitfield states",
+        "de": "UDP-Kommunikation gehärtet\nSpezifikationsbasierte Register-Map und erweiterte GoodWe-Datenpunkte ergänzt\nDekodierte Status- und Bitfeld-Zustände ergänzt",
+        "ru": "Усилена UDP-коммуникация\nДобавлена карта регистров на основе спецификации и расширенные точки данных GoodWe\nДобавлены декодированные состояния статусов и битовых полей",
+        "pt": "Comunicação UDP reforçada\nAdicionado mapa de registros baseado na especificação e pontos de dados GoodWe ampliados\nAdicionados estados decodificados de status e campos de bits",
+        "nl": "UDP-communicatie robuuster gemaakt\nSpecificatiegebaseerde registermap en uitgebreide GoodWe-datapunten toegevoegd\nGedecodeerde status- en bitveldstatussen toegevoegd",
+        "fr": "Communication UDP renforcée\nAjout d'une carte de registres basée sur la spécification et de points de données GoodWe étendus\nAjout d'états décodés pour les statuts et champs de bits",
+        "it": "Comunicazione UDP resa più robusta\nAggiunta mappa registri basata sulla specifica e punti dati GoodWe estesi\nAggiunti stati decodificati per stati e campi bit",
+        "es": "Comunicación UDP reforzada\nAñadido mapa de registros basado en la especificación y puntos de datos GoodWe ampliados\nAñadidos estados decodificados de estado y campos de bits",
+        "pl": "Wzmocniono komunikację UDP\nDodano mapę rejestrów opartą na specyfikacji i rozszerzone punkty danych GoodWe\nDodano zdekodowane stany statusów i pól bitowych",
+        "uk": "Посилено UDP-комунікацію\nДодано карту регістрів на основі специфікації та розширені точки даних GoodWe\nДодано декодовані стани статусів і бітових полів",
+        "zh-cn": "增强了 UDP 通信\n添加了基于规范的寄存器映射和扩展的 GoodWe 数据点\n添加了解码后的状态和位字段状态"
+      },
       "1.0.6": {
         "en": "(ty) updated dependencies\n(ty) extended logging",
         "de": "(ty) updated dependencies\n(ty) extended logging",
@@ -151,16 +190,21 @@
     "main": "main.js",
     "icon": "goodwe.png",
     "enabled": true,
-    "extIcon": "https://raw.githubusercontent.com/FossyTom/ioBroker.goodwe/main/admin/goodwe.png",
-    "readme": "https://github.com/FossyTom/ioBroker.goodwe/blob/main/README.md",
+    "extIcon": "https://raw.githubusercontent.com/typhosj/ioBroker.goodwe/main/admin/goodwe.png",
+    "readme": "https://github.com/typhosj/ioBroker.goodwe/blob/main/README.md",
     "loglevel": "info",
     "mode": "daemon",
     "type": "energy",
     "compact": true,
+    "materialize": true,
+    "messagebox": true,
+    "supportedMessages": {
+      "custom": true
+    },
     "connectionType": "local",
     "dataSource": "poll",
     "adminUI": {
-      "config": "json"
+      "config": "materialize"
     },
     "dependencies": [
       {
@@ -174,8 +218,19 @@
     ]
   },
   "native": {
-    "ipAddr": "127.0.0.1",
-    "pollCycle": 10
+    "ipAddr": "",
+    "discoverySubnet": "",
+    "pollCycle": 10,
+    "timeoutMs": 5000,
+    "retries": 1,
+    "pollExtended": true,
+    "pollSimccid": true,
+    "pollExtendedMeter": true,
+    "pollFlashInfo": true,
+    "pollBmsExtended": true,
+    "pollBmsDetail": false,
+    "pollCeiAutoTest": true,
+    "pollPowerLimit": false
   },
   "objects": [],
   "instanceObjects": [
