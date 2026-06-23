@@ -28,6 +28,26 @@ The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/
 
 Raw register values are kept as ioBroker states. Important mode and bitfield values are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
 
+## Important states
+
+| State area | Description |
+| --- | --- |
+| `DeviceInfo.*` | Inverter protocol, rated power, serial number, device type and firmware data |
+| `RunningData.PV1.*` ... `RunningData.PV4.*` | PV voltage, current, power and mode |
+| `RunningData.GridL1.*` ... `RunningData.GridL3.*` | Grid voltage, current, frequency and power |
+| `RunningData.BackUpL1.*` ... `RunningData.BackUpL3.*` | Back-up output voltage, current, frequency, power and mode |
+| `RunningData.Battery1.*` | Battery voltage, current, power and mode |
+| `RunningData.*Energy*` | Daily and total energy counters |
+| `RunningData.*Text` | Decoded inverter, grid, PV, battery and back-up mode states |
+| `RunningData.ErrorMessageActive` | Active inverter error bits as text |
+| `RunningData.DiagStatusActive` | Active diagnostic bits as text |
+| `ExtComData.*` | Smart meter and communication data |
+| `BMSInfo.*` | BMS status, SOC, SOH, error and warning data |
+| `BMSInfo.*Active` | Decoded BMS alarm, warning and DRM bitfields |
+| `CEIAutoTest.*` | CEI auto test values if supported by the inverter |
+
+`RunningData.ModuleTemperature` and `RunningData.SafetyCountry` are the canonical state names. Older misspelled states are removed on adapter start.
+
 ## Configuration
 
 * `ipAddr`: IP address of the inverter.
@@ -44,6 +64,19 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
 * `cleanupDisabledStates`: Deletes states of disabled optional register groups on adapter start.
 
+## Troubleshooting
+
+Optional register groups depend on inverter model, firmware and connected hardware. If a group is not supported, the adapter skips it after a timeout backoff and keeps the main connection online.
+
+Known model-dependent groups:
+
+* `pollBmsDetail`: often unsupported unless the BMS exposes detail registers.
+* `pollPowerLimit`: often unsupported on devices that do not expose power-limit telemetry.
+* `pollCeiAutoTest`: can provide values on devices/firmware that support CEI auto test data.
+
+If logs show optional register timeouts, disable the matching group in the advanced settings. Enable `cleanupDisabledStates` once and restart the adapter to remove states from disabled optional groups.
+
+For unstable network connections, increase `timeoutMs` first. Increase `retries` only when the inverter occasionally misses packets, because retries also lengthen one poll cycle.
 
 
 ## Changelog
@@ -51,6 +84,14 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.0.8 (2026-06-23)
+* Added separate basic and advanced configuration tabs
+* Added per-group optional register polling defaults based on real device feedback
+* Removed legacy misspelled states and added startup cleanup for them
+* Cleaned up legacy hard-coded decoder code in favor of the register map
+* Finalized selected state units and roles
+* Expanded README with state overview and troubleshooting
+
 ### 1.0.7 (2026-06-23)
 * Hardened UDP communication with async request handling, timeout and retry support
 * Added specification based register map and extended GoodWe register groups

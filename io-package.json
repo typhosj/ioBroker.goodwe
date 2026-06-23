@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "news": {
+      "1.0.8": {
+        "en": "Added basic and advanced configuration tabs\nAdded per-group optional register polling defaults\nRemoved legacy misspelled states and cleaned up old decoder code",
+        "de": "Basis- und Erweiterte-Einstellungen als Tabs ergänzt\nOptionale Registergruppen einzeln konfigurierbar gemacht\nAlte falsch geschriebene States entfernt und alten Decoder-Code bereinigt",
+        "ru": "Добавлены вкладки базовых и расширенных настроек\nДобавлена отдельная настройка опроса необязательных групп регистров\nУдалены старые состояния с ошибками в названиях и очищен старый код декодера",
+        "pt": "Adicionadas abas de configurações básicas e avançadas\nAdicionada configuração individual para grupos opcionais de registros\nRemovidos estados antigos com nomes incorretos e limpo código antigo de decodificação",
+        "nl": "Tabbladen voor basis- en geavanceerde instellingen toegevoegd\nOptionele registergroepen afzonderlijk configureerbaar gemaakt\nOude fout gespelde states verwijderd en oude decodercode opgeschoond",
+        "fr": "Ajout d'onglets de configuration de base et avancée\nAjout de réglages par groupe pour les registres optionnels\nSuppression des anciens états mal orthographiés et nettoyage de l'ancien décodeur",
+        "it": "Aggiunte schede di configurazione di base e avanzata\nAggiunta configurazione separata per gruppi di registri opzionali\nRimossi vecchi stati con errori di ortografia e ripulito il vecchio decoder",
+        "es": "Añadidas pestañas de configuración básica y avanzada\nAñadida configuración individual para grupos de registros opcionales\nEliminados estados antiguos mal escritos y limpiado el código decodificador antiguo",
+        "pl": "Dodano karty ustawień podstawowych i zaawansowanych\nDodano osobną konfigurację opcjonalnych grup rejestrów\nUsunięto stare błędnie nazwane stany i wyczyszczono stary kod dekodera",
+        "uk": "Додано вкладки базових і розширених налаштувань\nДодано окреме налаштування опитування необов'язкових груп регістрів\nВидалено старі стани з помилками в назвах і очищено старий код декодера",
+        "zh-cn": "添加了基础和高级配置标签页\n为可选寄存器组添加了单独的轮询配置\n移除了旧的拼写错误状态并清理了旧的解码代码"
+      },
       "1.0.7": {
         "en": "Hardened UDP communication\nAdded specification based register map and extended GoodWe data points\nAdded decoded status and bitfield states",
         "de": "UDP-Kommunikation gehärtet\nSpezifikationsbasierte Register-Map und erweiterte GoodWe-Datenpunkte ergänzt\nDekodierte Status- und Bitfeld-Zustände ergänzt",

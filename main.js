@@ -51,6 +51,7 @@ class Goodwe extends utils.Adapter {
     this.CreateObjectsRunningData();
     this.CreateObjectsExtComData();
     this.CreateObjectsBmsInfo();
+    await this.DeleteLegacyTypoStates();
     await this.CleanupDisabledOptionalStates();
     await this.CreateObjectsFromRegisterMap();
     await this.CreateDecodedStatusObjects();
@@ -149,14 +150,14 @@ class Goodwe extends utils.Adapter {
     this.CreateObjectStateNumber("RunningData", "TotalPower");
     this.CreateObjectStateNumber("RunningData", "UpsLoadPercent");
     this.CreateObjectStateNumber("RunningData", "AirTemperature");
-    this.CreateObjectStateNumber("RunningData", "ModulTemperature");
+    this.CreateObjectStateNumber("RunningData", "ModuleTemperature");
     this.CreateObjectStateNumber("RunningData", "RadiatorTemperature");
     this.CreateObjectStateNumber("RunningData", "FunctionBitValue");
     this.CreateObjectStateNumber("RunningData", "BusVoltage");
     this.CreateObjectStateNumber("RunningData", "NbusVoltage");
     this.CreateObjectsDcParameters("RunningData", "Battery1");
     this.CreateObjectStateNumber("RunningData", "WarningCode");
-    this.CreateObjectStateNumber("RunningData", "SaftyCountry");
+    this.CreateObjectStateNumber("RunningData", "SafetyCountry");
     this.CreateObjectStateNumber("RunningData", "WorkMode");
     this.CreateObjectStateNumber("RunningData", "OperationMode");
     this.CreateObjectStateNumber("RunningData", "ErrorMessage");
@@ -338,6 +339,20 @@ class Goodwe extends utils.Adapter {
           await this.delObjectAsync(item.state);
           this.log.debug(`Deleted disabled optional state ${item.state}`);
         }
+      }
+    }
+  }
+
+  async DeleteLegacyTypoStates() {
+    for (const state of [
+      "RunningData.ModulTemperature",
+      "RunningData.SaftyCountry",
+    ]) {
+      const object = await this.getObjectAsync(state);
+
+      if (object) {
+        await this.delObjectAsync(state);
+        this.log.info(`Deleted legacy typo state ${state}`);
       }
     }
   }
@@ -1083,8 +1098,8 @@ class Goodwe extends utils.Adapter {
       true,
     );
     this.setStateAsync(
-      "RunningData.ModulTemperature",
-      this.inverter.RunningData.ModulTemperature,
+      "RunningData.ModuleTemperature",
+      this.inverter.RunningData.ModuleTemperature,
       true,
     );
     this.setStateAsync(
@@ -1133,8 +1148,8 @@ class Goodwe extends utils.Adapter {
       true,
     );
     this.setStateAsync(
-      "RunningData.SaftyCountry",
-      this.inverter.RunningData.SaftyCountry,
+      "RunningData.SafetyCountry",
+      this.inverter.RunningData.SafetyCountry,
       true,
     );
     this.setStateAsync(

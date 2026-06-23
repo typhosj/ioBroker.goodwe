@@ -57,6 +57,55 @@ describe("register map", () => {
       assert.match(optionalGroupConfigs[groupName], /^poll/);
     }
   });
+
+  it("uses clean state names without legacy typos", () => {
+    const runningStates = registerGroups.runningData.entries.map(
+      (item) => item.state,
+    );
+
+    assert.equal(runningStates.includes("RunningData.ModulTemperature"), false);
+    assert.ok(runningStates.includes("RunningData.ModuleTemperature"));
+    assert.equal(runningStates.includes("RunningData.SaftyCountry"), false);
+    assert.ok(runningStates.includes("RunningData.SafetyCountry"));
+  });
+
+  it("uses explicit units and sane roles", () => {
+    const allowedRoles = new Set([
+      "text",
+      "value",
+      "value.battery",
+      "value.current",
+      "value.energy",
+      "value.frequency",
+      "value.interval",
+      "value.power",
+      "value.temperature",
+      "value.voltage",
+    ]);
+    const allowedUnits = new Set([
+      undefined,
+      "%",
+      "A",
+      "C",
+      "Hz",
+      "VA",
+      "V",
+      "W",
+      "h",
+      "kWh",
+      "mV",
+      "ms",
+      "s",
+      "var",
+    ]);
+
+    for (const group of Object.values(registerGroups)) {
+      for (const item of group.entries) {
+        assert.ok(allowedRoles.has(item.role), `${item.state} role ${item.role}`);
+        assert.ok(allowedUnits.has(item.unit), `${item.state} unit ${item.unit}`);
+      }
+    }
+  });
 });
 
 describe("status decoding", () => {
