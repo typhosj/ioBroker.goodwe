@@ -10,6 +10,7 @@ const {
 } = require("./lib/status-definitions");
 const {
   buildIdInfoRequest,
+  formatInverterOption,
   getIpv4CandidatesFromSubnet,
   isGoodWeIdInfoResponse,
   parseIdInfoResponse,
@@ -179,6 +180,26 @@ describe("GoodWe discovery helpers", () => {
 
     response[5] = 0x81;
     assert.equal(isGoodWeIdInfoResponse(response), false);
+  });
+
+  it("formats discovered inverters as admin select options", () => {
+    assert.deepEqual(
+      formatInverterOption({
+        ip: "192.168.178.42",
+        reachable: true,
+        idInfo: {
+          modelName: "GW10K-ET",
+          serialNumber: "1234567890ABCDEF",
+          firmwareVersion: "01023",
+          internalVersion: "ARM205-V1.7",
+        },
+      }),
+      {
+        value: "192.168.178.42",
+        label:
+          "192.168.178.42 | GW10K-ET | SN 1234567890ABCDEF | FW 01023 | ARM205-V1.7",
+      },
+    );
   });
 });
 

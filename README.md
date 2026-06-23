@@ -67,6 +67,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 
 The basic settings page also provides two actions:
 
+* `Ip Addr.`: Allows manual entry or selection of a discovered inverter. Discovered entries show IP address, model name, serial number, firmware version and internal version when provided by the inverter.
 * `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
 * `Search inverter in network`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899.
 
@@ -94,6 +95,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 * Added validation for usable IPv4 inverter addresses
 * Added GoodWe UDP reachability check from the admin configuration
 * Added `/24` network discovery for GoodWe inverters via UDP port 8899
+* Added discovered inverter selection in the IP address field with model and serial information
 
 ### 1.0.8 (2026-06-23)
 * Added separate basic and advanced configuration tabs

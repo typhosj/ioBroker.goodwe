@@ -4,17 +4,17 @@
     "version": "1.0.9",
     "news": {
       "1.0.9": {
-        "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery for GoodWe inverters",
-        "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche für GoodWe-Wechselrichter ergänzt",
-        "ru": "Добавлена проверка IPv4-адреса инвертора\nДобавлена проверка доступности GoodWe по UDP\nДобавлен поиск инверторов GoodWe в сети",
-        "pt": "Adicionada validação IPv4 do inversor\nAdicionada verificação de disponibilidade GoodWe via UDP\nAdicionada descoberta de inversores GoodWe na rede",
-        "nl": "IPv4-validatie voor de omvormer toegevoegd\nGoodWe UDP-bereikbaarheidscontrole toegevoegd\nNetwerkdetectie voor GoodWe-omvormers toegevoegd",
-        "fr": "Ajout de la validation IPv4 de l'onduleur\nAjout d'un contrôle d'accessibilité UDP GoodWe\nAjout de la découverte réseau des onduleurs GoodWe",
-        "it": "Aggiunta validazione IPv4 dell'inverter\nAggiunto controllo di raggiungibilità UDP GoodWe\nAggiunta ricerca in rete degli inverter GoodWe",
-        "es": "Añadida validación IPv4 del inversor\nAñadida comprobación de disponibilidad UDP GoodWe\nAñadida búsqueda en red de inversores GoodWe",
-        "pl": "Dodano walidację adresu IPv4 falownika\nDodano sprawdzanie dostępności GoodWe przez UDP\nDodano wykrywanie falowników GoodWe w sieci",
-        "uk": "Додано перевірку IPv4-адреси інвертора\nДодано перевірку доступності GoodWe через UDP\nДодано пошук інверторів GoodWe в мережі",
-        "zh-cn": "新增逆变器 IPv4 地址校验\n新增 GoodWe UDP 可达性检查\n新增 GoodWe 逆变器网络发现"
+        "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery and selectable inverter list",
+        "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche mit auswählbarer Wechselrichterliste ergänzt",
+        "ru": "Добавлена проверка IPv4-адреса инвертора\nДобавлена проверка доступности GoodWe по UDP\nДобавлен поиск в сети со списком выбора инверторов",
+        "pt": "Adicionada validação IPv4 do inversor\nAdicionada verificação de disponibilidade GoodWe via UDP\nAdicionada descoberta de rede com lista selecionável de inversores",
+        "nl": "IPv4-validatie voor de omvormer toegevoegd\nGoodWe UDP-bereikbaarheidscontrole toegevoegd\nNetwerkdetectie met selecteerbare omvormerlijst toegevoegd",
+        "fr": "Ajout de la validation IPv4 de l'onduleur\nAjout d'un contrôle d'accessibilité UDP GoodWe\nAjout de la découverte réseau avec liste d'onduleurs sélectionnable",
+        "it": "Aggiunta validazione IPv4 dell'inverter\nAggiunto controllo di raggiungibilità UDP GoodWe\nAggiunta ricerca in rete con lista inverter selezionabile",
+        "es": "Añadida validación IPv4 del inversor\nAñadida comprobación de disponibilidad UDP GoodWe\nAñadida búsqueda en red con lista seleccionable de inversores",
+        "pl": "Dodano walidację adresu IPv4 falownika\nDodano sprawdzanie dostępności GoodWe przez UDP\nDodano wykrywanie w sieci z wybieralną listą falowników",
+        "uk": "Додано перевірку IPv4-адреси інвертора\nДодано перевірку доступності GoodWe через UDP\nДодано пошук у мережі зі списком вибору інверторів",
+        "zh-cn": "新增逆变器 IPv4 地址校验\n新增 GoodWe UDP 可达性检查\n新增网络发现和可选逆变器列表"
       },
       "1.0.8": {
         "en": "Added basic and advanced configuration tabs\nAdded per-group optional register polling defaults\nRemoved legacy misspelled states and cleaned up old decoder code",

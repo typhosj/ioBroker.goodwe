@@ -21,6 +21,7 @@ const {
 } = require("./lib/status-definitions");
 const {
   discoverGoodWeInverters,
+  formatInverterOption,
   probeGoodWeInverter,
   validateIpv4Address,
 } = require("./lib/goodwe-discovery");
@@ -160,9 +161,22 @@ class Goodwe extends utils.Adapter {
             ip: obj.message?.ip ?? this.config.ipAddr,
             subnet: obj.message?.subnet,
             timeoutMs: Number(obj.message?.timeoutMs) || 700,
+            concurrency: Number(obj.message?.concurrency) || undefined,
           });
 
           respond(result);
+          return;
+        }
+
+        case "discoverInverterOptions": {
+          const result = await discoverGoodWeInverters({
+            ip: obj.message?.ip ?? this.config.ipAddr,
+            subnet: obj.message?.subnet,
+            timeoutMs: Number(obj.message?.timeoutMs) || 700,
+            concurrency: Number(obj.message?.concurrency) || 64,
+          });
+
+          respond(result.found.map(formatInverterOption));
           return;
         }
 
