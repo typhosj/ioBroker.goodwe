@@ -10,6 +10,7 @@ const {
 } = require("./lib/status-definitions");
 const {
   buildIdInfoRequest,
+  clampDiscoveryConcurrency,
   extractIpv4Address,
   formatInverterOption,
   getIpv4CandidatesFromSubnet,
@@ -158,6 +159,13 @@ describe("GoodWe discovery helpers", () => {
     assert.equal(candidates[0], "192.168.178.1");
     assert.equal(candidates[253], "192.168.178.254");
     assert.deepEqual(getIpv4CandidatesFromSubnet("192.168.178.0/16"), []);
+  });
+
+  it("clamps discovery concurrency values", () => {
+    assert.equal(clampDiscoveryConcurrency(0), 32);
+    assert.equal(clampDiscoveryConcurrency(-1), 1);
+    assert.equal(clampDiscoveryConcurrency(999), 254);
+    assert.equal(clampDiscoveryConcurrency(7.9), 7);
   });
 
   it("builds the GoodWe ID info request", () => {

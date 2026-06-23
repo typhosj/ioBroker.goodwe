@@ -74,7 +74,7 @@
     "release-major": "release-script major -- yes"
   },
   "bugs": {
-    "url": "https://github.com/FossyTom/ioBroker.goodwe/issues"
+    "url": "https://github.com/typhosj/ioBroker.goodwe/issues"
   },
   "readmeFilename": "README.md"
 }

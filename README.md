@@ -8,7 +8,7 @@
 
 [![NPM](https://nodei.co/npm/iobroker.goodwe.png?downloads=true)](https://nodei.co/npm/iobroker.goodwe/)
 
-**Tests:** ![Test and Release](https://github.com/FossyTom/ioBroker.goodwe/workflows/Test%20and%20Release/badge.svg)
+**Tests:** ![Test and Release](https://github.com/typhosj/ioBroker.goodwe/workflows/Test%20and%20Release/badge.svg)
 
 ## goodwe adapter for ioBroker
 
