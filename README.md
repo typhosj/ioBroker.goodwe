@@ -42,6 +42,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollBmsDetail`: Enables BMS detail registers, if supported by the inverter.
 * `pollCeiAutoTest`: Enables CEI auto test registers.
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
+* `cleanupDisabledStates`: Deletes states of disabled optional register groups on adapter start.
 
 
 
@@ -55,6 +56,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * Added specification based register map and extended GoodWe register groups
 * Added decoded status and bitfield states for inverter, BMS, DRM and diagnostics
 * Added adapter options for request timeout, retries and per-group extended register polling
+* Added optional cleanup for disabled extended register states
 * Added register-map and status-decoding tests
 
 ### 1.0.6 (2025-04-02)

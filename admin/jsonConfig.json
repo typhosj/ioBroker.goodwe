@@ -1,120 +1,141 @@
 {
 	"i18n": true,
-	"type": "panel",
+	"type": "tabs",
 	"items": {
-		"ipAddr": {
-			"newLine": true,
-			"type": "text",
-			"label": "Ip Addr.",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "IP Address of GoodWe Inverter"
+		"basic": {
+			"type": "panel",
+			"label": "Basic settings",
+			"items": {
+				"ipAddr": {
+					"newLine": true,
+					"type": "text",
+					"label": "Ip Addr.",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "IP Address of GoodWe Inverter"
+				},
+				"pollCycle": {
+					"newLine": true,
+					"type": "number",
+					"min": 10,
+					"max": 3600,
+					"label": "Poll cycle",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Poll cycle for data refreshment in seconds"
+				},
+				"timeoutMs": {
+					"newLine": true,
+					"type": "number",
+					"min": 1000,
+					"max": 30000,
+					"label": "Timeout",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "UDP request timeout in milliseconds"
+				},
+				"retries": {
+					"newLine": true,
+					"type": "number",
+					"min": 0,
+					"max": 5,
+					"label": "Retries",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Retries per UDP request"
+				}
+			}
 		},
-		"pollCycle": {
-			"newLine": true,
-			"type": "number",
-			"min": 10,
-			"max": 3600,
-			"label": "Poll cycle",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Poll cycle for data refreshment in seconds"
-		},
-		"timeoutMs": {
-			"newLine": true,
-			"type": "number",
-			"min": 1000,
-			"max": 30000,
-			"label": "Timeout",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "UDP request timeout in milliseconds"
-		},
-		"retries": {
-			"newLine": true,
-			"type": "number",
-			"min": 0,
-			"max": 5,
-			"label": "Retries",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Retries per UDP request"
-		},
-		"pollExtended": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll extended registers",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Master switch for optional register groups"
-		},
-		"pollSimccid": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll SIMCCID",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read the optional device SIMCCID register"
-		},
-		"pollExtendedMeter": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll extended meter",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read extended meter power registers"
-		},
-		"pollFlashInfo": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll flash info",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read flash information registers"
-		},
-		"pollBmsExtended": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll BMS extended",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read extended BMS information registers"
-		},
-		"pollBmsDetail": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll BMS detail",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read BMS detail registers if supported by the inverter"
-		},
-		"pollCeiAutoTest": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll CEI auto test",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read CEI auto test registers"
-		},
-		"pollPowerLimit": {
-			"newLine": true,
-			"type": "checkbox",
-			"label": "Poll power limit",
-			"sm": 12,
-			"md": 6,
-			"lg": 6,
-			"help": "Read power limit registers if supported by the inverter"
+		"advanced": {
+			"type": "panel",
+			"label": "Advanced settings",
+			"items": {
+				"pollExtended": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll extended registers",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Master switch for optional register groups"
+				},
+				"pollSimccid": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll SIMCCID",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read the optional device SIMCCID register"
+				},
+				"pollExtendedMeter": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll extended meter",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read extended meter power registers"
+				},
+				"pollFlashInfo": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll flash info",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read flash information registers"
+				},
+				"pollBmsExtended": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll BMS extended",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read extended BMS information registers"
+				},
+				"pollBmsDetail": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll BMS detail",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read BMS detail registers if supported by the inverter"
+				},
+				"pollCeiAutoTest": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll CEI auto test",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read CEI auto test registers"
+				},
+				"pollPowerLimit": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Poll power limit",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Read power limit registers if supported by the inverter"
+				},
+				"cleanupDisabledStates": {
+					"newLine": true,
+					"type": "checkbox",
+					"label": "Remove disabled optional states",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Delete states of disabled optional register groups on adapter start"
+				}
+			}
 		}
 	}
 }

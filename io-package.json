@@ -198,7 +198,8 @@
     "pollBmsExtended": true,
     "pollBmsDetail": false,
     "pollCeiAutoTest": true,
-    "pollPowerLimit": false
+    "pollPowerLimit": false,
+    "cleanupDisabledStates": false
   },
   "objects": [],
   "instanceObjects": [

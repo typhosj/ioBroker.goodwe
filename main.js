@@ -8,7 +8,11 @@
 // you need to create an adapter
 const utils = require("@iobroker/adapter-core");
 const goodWe = require("./GoodWe/GoodWe");
-const { registerGroups, TYPE } = require("./lib/register-map");
+const {
+  optionalGroupConfigs,
+  registerGroups,
+  TYPE,
+} = require("./lib/register-map");
 const {
   bitfields,
   decodeBitfield,
@@ -47,6 +51,7 @@ class Goodwe extends utils.Adapter {
     this.CreateObjectsRunningData();
     this.CreateObjectsExtComData();
     this.CreateObjectsBmsInfo();
+    await this.CleanupDisabledOptionalStates();
     await this.CreateObjectsFromRegisterMap();
     await this.CreateDecodedStatusObjects();
 
@@ -249,7 +254,11 @@ class Goodwe extends utils.Adapter {
   async CreateObjectsFromRegisterMap() {
     const channels = new Set();
 
-    for (const group of Object.values(registerGroups)) {
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
       channels.add(group.channel);
 
       for (const item of group.entries) {
@@ -271,7 +280,11 @@ class Goodwe extends utils.Adapter {
       });
     }
 
-    for (const group of Object.values(registerGroups)) {
+    for (const [groupName, group] of Object.entries(registerGroups)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
+        continue;
+      }
+
       for (const item of group.entries) {
         await this.setObjectNotExistsAsync(item.state, {
           type: "state",
@@ -289,6 +302,42 @@ class Goodwe extends utils.Adapter {
             scale: item.scale,
           },
         });
+      }
+    }
+  }
+
+  IsRegisterGroupEnabled(groupName) {
+    const configKey = optionalGroupConfigs[groupName];
+
+    if (!configKey) {
+      return true;
+    }
+
+    return (
+      this.config.pollExtended !== false && this.config[configKey] === true
+    );
+  }
+
+  async CleanupDisabledOptionalStates() {
+    if (this.config.cleanupDisabledStates !== true) {
+      return;
+    }
+
+    for (const [groupName, configKey] of Object.entries(optionalGroupConfigs)) {
+      if (
+        this.config.pollExtended !== false &&
+        this.config[configKey] === true
+      ) {
+        continue;
+      }
+
+      for (const item of registerGroups[groupName].entries) {
+        const object = await this.getObjectAsync(item.state);
+
+        if (object) {
+          await this.delObjectAsync(item.state);
+          this.log.debug(`Deleted disabled optional state ${item.state}`);
+        }
       }
     }
   }
@@ -1341,18 +1390,8 @@ class Goodwe extends utils.Adapter {
   }
 
   async UpdateAdditionalRegisterGroups() {
-    const groupConfigs = [
-      ["deviceSimccid", "pollSimccid"],
-      ["extComDataExtended", "pollExtendedMeter"],
-      ["flashInfo", "pollFlashInfo"],
-      ["bmsInfoExtended", "pollBmsExtended"],
-      ["bmsDetail", "pollBmsDetail"],
-      ["ceiAutoTest", "pollCeiAutoTest"],
-      ["powerLimit", "pollPowerLimit"],
-    ];
-
-    for (const [groupName, configKey] of groupConfigs) {
-      if (this.config[configKey] !== true) {
+    for (const groupName of Object.keys(optionalGroupConfigs)) {
+      if (!this.IsRegisterGroupEnabled(groupName)) {
         continue;
       }
 

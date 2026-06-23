@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { registerGroups } = require("./lib/register-map");
+const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
 const {
   bitfields,
   decodeBitfield,
@@ -48,6 +48,13 @@ describe("register map", () => {
     ]) {
       assert.ok(registerGroups[groupName], `${groupName} is missing`);
       assert.ok(registerGroups[groupName].entries.length > 0);
+    }
+  });
+
+  it("defines config switches for every optional group", () => {
+    for (const groupName of Object.keys(optionalGroupConfigs)) {
+      assert.ok(registerGroups[groupName], `${groupName} has no register group`);
+      assert.match(optionalGroupConfigs[groupName], /^poll/);
     }
   });
 });
