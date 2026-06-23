@@ -51,7 +51,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 ## Configuration
 
 * `ipAddr`: IP address of the inverter.
-  The adapter validates this as a usable IPv4 host address on startup.
+  Empty on fresh installations. The adapter validates this as a usable IPv4 host address on startup.
 * `discoverySubnet`: Optional `/24` subnet for network discovery, for example `192.168.178.0/24`.
 * `pollCycle`: Base poll cycle in seconds.
 * `timeoutMs`: UDP request timeout in milliseconds.
@@ -67,10 +67,11 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `cleanupDisabledStates`: Deletes states of disabled optional register groups on adapter start.
 
 The basic settings page also provides discovery helpers:
+The basic settings page also provides discovery helpers:
 
-* `Inverter IP / search`: Allows manual entry or selection of a discovered inverter. Open this field's dropdown to search and select. Discovered entries show IP address, model name, serial number, firmware version and internal version when provided by the inverter.
+* `Inverter IP`: Stores only the inverter IPv4 address.
 * `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
-* `Test discovery`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays the raw discovery result. Selecting and applying an IP is done through the `Inverter IP / search` dropdown.
+* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter. Copy only the IP address into `Inverter IP`.
 
 ## Troubleshooting
 

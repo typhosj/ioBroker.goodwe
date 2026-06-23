@@ -8,6 +8,7 @@
 	],
 	"exclude": [
 		"**/build",
+		"admin/",
 		"node_modules/",
 		"widgets/"
 	]

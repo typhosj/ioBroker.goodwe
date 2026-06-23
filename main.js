@@ -21,7 +21,7 @@ const {
 } = require("./lib/status-definitions");
 const {
   discoverGoodWeInverters,
-  formatInverterOption,
+  extractIpv4Address,
   probeGoodWeInverter,
   validateIpv4Address,
 } = require("./lib/goodwe-discovery");
@@ -66,6 +66,14 @@ class Goodwe extends utils.Adapter {
     // Reset the connection indicator during startup
     this.setState("info.connection", false, true);
 
+    const configuredIp = extractIpv4Address(this.config.ipAddr);
+
+    if (configuredIp === "") {
+      this.log.warn("No inverter IP address configured yet");
+      return;
+    }
+
+    this.config.ipAddr = configuredIp;
     const ipValidation = validateIpv4Address(this.config.ipAddr);
 
     if (!ipValidation.valid) {
@@ -168,18 +176,6 @@ class Goodwe extends utils.Adapter {
           return;
         }
 
-        case "discoverInverterOptions": {
-          const result = await discoverGoodWeInverters({
-            ip: this.GetConfiguredIp(obj.message?.ip),
-            subnet: this.GetConfiguredSubnet(obj.message?.subnet),
-            timeoutMs: Number(obj.message?.timeoutMs) || 700,
-            concurrency: Number(obj.message?.concurrency) || 64,
-          });
-
-          respond(result.found.map(formatInverterOption));
-          return;
-        }
-
         default:
           respond({ error: `Unknown command: ${obj.command}` });
       }
@@ -189,11 +185,13 @@ class Goodwe extends utils.Adapter {
   }
 
   GetConfiguredIp(messageIp) {
-    if (typeof messageIp === "string" && messageIp.trim() !== "") {
-      return messageIp.trim();
+    const ipFromMessage = extractIpv4Address(messageIp);
+
+    if (ipFromMessage !== "") {
+      return ipFromMessage;
     }
 
-    return this.config.ipAddr;
+    return extractIpv4Address(this.config.ipAddr);
   }
 
   GetConfiguredSubnet(messageSubnet) {

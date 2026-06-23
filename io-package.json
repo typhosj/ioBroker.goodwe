@@ -196,15 +196,13 @@
     "mode": "daemon",
     "type": "energy",
     "compact": true,
+    "materialize": true,
     "messagebox": true,
     "supportedMessages": {
       "custom": true
     },
     "connectionType": "local",
     "dataSource": "poll",
-    "adminUI": {
-      "config": "json"
-    },
     "dependencies": [
       {
         "js-controller": ">=3.3.22"
@@ -217,7 +215,7 @@
     ]
   },
   "native": {
-    "ipAddr": "127.0.0.1",
+    "ipAddr": "",
     "discoverySubnet": "",
     "pollCycle": 10,
     "timeoutMs": 5000,

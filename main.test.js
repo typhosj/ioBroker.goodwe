@@ -10,6 +10,7 @@ const {
 } = require("./lib/status-definitions");
 const {
   buildIdInfoRequest,
+  extractIpv4Address,
   formatInverterOption,
   getIpv4CandidatesFromSubnet,
   isGoodWeIdInfoResponse,
@@ -140,6 +141,14 @@ describe("GoodWe discovery helpers", () => {
     assert.equal(validateIpv4Address("127.0.0.1").valid, false);
     assert.equal(validateIpv4Address("192.168.001.42").valid, false);
     assert.equal(validateIpv4Address("224.0.0.1").valid, false);
+  });
+
+  it("extracts an IPv4 address from display labels", () => {
+    assert.equal(
+      extractIpv4Address("192.168.178.29 | GW10KN-ET | SN 9010KETU231W1723"),
+      "192.168.178.29",
+    );
+    assert.equal(extractIpv4Address("no inverter"), "");
   });
 
   it("creates /24 discovery candidates", () => {
