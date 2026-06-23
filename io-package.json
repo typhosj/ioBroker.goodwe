@@ -191,7 +191,14 @@
     "pollCycle": 10,
     "timeoutMs": 5000,
     "retries": 1,
-    "pollExtended": true
+    "pollExtended": true,
+    "pollSimccid": true,
+    "pollExtendedMeter": true,
+    "pollFlashInfo": true,
+    "pollBmsExtended": true,
+    "pollBmsDetail": false,
+    "pollCeiAutoTest": true,
+    "pollPowerLimit": false
   },
   "objects": [],
   "instanceObjects": [

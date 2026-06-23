@@ -51,7 +51,70 @@
 			"sm": 12,
 			"md": 6,
 			"lg": 6,
-			"help": "Read SIMCCID, flash, BMS detail, CEI auto test and power limit registers"
+			"help": "Master switch for optional register groups"
+		},
+		"pollSimccid": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll SIMCCID",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read the optional device SIMCCID register"
+		},
+		"pollExtendedMeter": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll extended meter",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read extended meter power registers"
+		},
+		"pollFlashInfo": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll flash info",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read flash information registers"
+		},
+		"pollBmsExtended": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll BMS extended",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read extended BMS information registers"
+		},
+		"pollBmsDetail": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll BMS detail",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read BMS detail registers if supported by the inverter"
+		},
+		"pollCeiAutoTest": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll CEI auto test",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read CEI auto test registers"
+		},
+		"pollPowerLimit": {
+			"newLine": true,
+			"type": "checkbox",
+			"label": "Poll power limit",
+			"sm": 12,
+			"md": 6,
+			"lg": 6,
+			"help": "Read power limit registers if supported by the inverter"
 		}
 	}
 }

@@ -34,7 +34,14 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollCycle`: Base poll cycle in seconds.
 * `timeoutMs`: UDP request timeout in milliseconds.
 * `retries`: Retry count per UDP request.
-* `pollExtended`: Enables the less frequently used extended register groups.
+* `pollExtended`: Master switch for optional register groups.
+* `pollSimccid`: Enables optional SIMCCID polling.
+* `pollExtendedMeter`: Enables extended meter registers.
+* `pollFlashInfo`: Enables flash information registers.
+* `pollBmsExtended`: Enables extended BMS information registers.
+* `pollBmsDetail`: Enables BMS detail registers, if supported by the inverter.
+* `pollCeiAutoTest`: Enables CEI auto test registers.
+* `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
 
 
 
@@ -47,7 +54,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * Hardened UDP communication with async request handling, timeout and retry support
 * Added specification based register map and extended GoodWe register groups
 * Added decoded status and bitfield states for inverter, BMS, DRM and diagnostics
-* Added adapter options for request timeout, retries and extended register polling
+* Added adapter options for request timeout, retries and per-group extended register polling
 * Added register-map and status-decoding tests
 
 ### 1.0.6 (2025-04-02)

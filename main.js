@@ -1341,17 +1341,21 @@ class Goodwe extends utils.Adapter {
   }
 
   async UpdateAdditionalRegisterGroups() {
-    const groupNames = [
-      "deviceSimccid",
-      "extComDataExtended",
-      "flashInfo",
-      "bmsInfoExtended",
-      "bmsDetail",
-      "ceiAutoTest",
-      "powerLimit",
+    const groupConfigs = [
+      ["deviceSimccid", "pollSimccid"],
+      ["extComDataExtended", "pollExtendedMeter"],
+      ["flashInfo", "pollFlashInfo"],
+      ["bmsInfoExtended", "pollBmsExtended"],
+      ["bmsDetail", "pollBmsDetail"],
+      ["ceiAutoTest", "pollCeiAutoTest"],
+      ["powerLimit", "pollPowerLimit"],
     ];
 
-    for (const groupName of groupNames) {
+    for (const [groupName, configKey] of groupConfigs) {
+      if (this.config[configKey] !== true) {
+        continue;
+      }
+
       const group = registerGroups[groupName];
       const success = await this.inverter.ReadGroup(groupName, {
         optional: true,
