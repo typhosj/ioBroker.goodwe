@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "news": {
+      "1.0.9": {
+        "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery for GoodWe inverters",
+        "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche für GoodWe-Wechselrichter ergänzt",
+        "ru": "Добавлена проверка IPv4-адреса инвертора\nДобавлена проверка доступности GoodWe по UDP\nДобавлен поиск инверторов GoodWe в сети",
+        "pt": "Adicionada validação IPv4 do inversor\nAdicionada verificação de disponibilidade GoodWe via UDP\nAdicionada descoberta de inversores GoodWe na rede",
+        "nl": "IPv4-validatie voor de omvormer toegevoegd\nGoodWe UDP-bereikbaarheidscontrole toegevoegd\nNetwerkdetectie voor GoodWe-omvormers toegevoegd",
+        "fr": "Ajout de la validation IPv4 de l'onduleur\nAjout d'un contrôle d'accessibilité UDP GoodWe\nAjout de la découverte réseau des onduleurs GoodWe",
+        "it": "Aggiunta validazione IPv4 dell'inverter\nAggiunto controllo di raggiungibilità UDP GoodWe\nAggiunta ricerca in rete degli inverter GoodWe",
+        "es": "Añadida validación IPv4 del inversor\nAñadida comprobación de disponibilidad UDP GoodWe\nAñadida búsqueda en red de inversores GoodWe",
+        "pl": "Dodano walidację adresu IPv4 falownika\nDodano sprawdzanie dostępności GoodWe przez UDP\nDodano wykrywanie falowników GoodWe w sieci",
+        "uk": "Додано перевірку IPv4-адреси інвертора\nДодано перевірку доступності GoodWe через UDP\nДодано пошук інверторів GoodWe в мережі",
+        "zh-cn": "新增逆变器 IPv4 地址校验\n新增 GoodWe UDP 可达性检查\n新增 GoodWe 逆变器网络发现"
+      },
       "1.0.8": {
         "en": "Added basic and advanced configuration tabs\nAdded per-group optional register polling defaults\nRemoved legacy misspelled states and cleaned up old decoder code",
         "de": "Basis- und Erweiterte-Einstellungen als Tabs ergänzt\nOptionale Registergruppen einzeln konfigurierbar gemacht\nAlte falsch geschriebene States entfernt und alten Decoder-Code bereinigt",
@@ -183,6 +196,10 @@
     "mode": "daemon",
     "type": "energy",
     "compact": true,
+    "messagebox": true,
+    "supportedMessages": {
+      "custom": true
+    },
     "connectionType": "local",
     "dataSource": "poll",
     "adminUI": {

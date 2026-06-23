@@ -13,7 +13,30 @@
 					"sm": 12,
 					"md": 6,
 					"lg": 6,
-					"help": "IP Address of GoodWe Inverter"
+					"placeholder": "192.168.1.42",
+					"help": "IPv4 address of GoodWe inverter"
+				},
+				"validateIp": {
+					"newLine": true,
+					"type": "sendTo",
+					"label": "Validate inverter IP",
+					"command": "validateIp",
+					"jsonData": "{\"timeoutMs\":1000}",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Checks whether the configured IP address is valid and answers the GoodWe ID request"
+				},
+				"discoverInverters": {
+					"newLine": true,
+					"type": "sendTo",
+					"label": "Search inverter in network",
+					"command": "discoverInverters",
+					"jsonData": "{\"timeoutMs\":700}",
+					"sm": 12,
+					"md": 6,
+					"lg": 6,
+					"help": "Scans the configured /24 subnet for GoodWe inverters via UDP port 8899"
 				},
 				"pollCycle": {
 					"newLine": true,

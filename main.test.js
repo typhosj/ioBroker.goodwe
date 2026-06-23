@@ -8,6 +8,13 @@ const {
   decodeValue,
   valueStates,
 } = require("./lib/status-definitions");
+const {
+  buildIdInfoRequest,
+  getIpv4CandidatesFromSubnet,
+  isGoodWeIdInfoResponse,
+  parseIdInfoResponse,
+  validateIpv4Address,
+} = require("./lib/goodwe-discovery");
 
 describe("register map", () => {
   it("keeps all entries inside their request block", () => {
@@ -125,3 +132,81 @@ describe("status decoding", () => {
     ]);
   });
 });
+
+describe("GoodWe discovery helpers", () => {
+  it("validates usable inverter IPv4 addresses", () => {
+    assert.equal(validateIpv4Address("192.168.1.42").valid, true);
+    assert.equal(validateIpv4Address("127.0.0.1").valid, false);
+    assert.equal(validateIpv4Address("192.168.001.42").valid, false);
+    assert.equal(validateIpv4Address("224.0.0.1").valid, false);
+  });
+
+  it("creates /24 discovery candidates", () => {
+    const candidates = getIpv4CandidatesFromSubnet("192.168.178.0/24");
+
+    assert.equal(candidates.length, 254);
+    assert.equal(candidates[0], "192.168.178.1");
+    assert.equal(candidates[253], "192.168.178.254");
+    assert.deepEqual(getIpv4CandidatesFromSubnet("192.168.178.0/16"), []);
+  });
+
+  it("builds the GoodWe ID info request", () => {
+    assert.deepEqual([...buildIdInfoRequest()], [
+      0xaa,
+      0x55,
+      0xc0,
+      0x7f,
+      0x01,
+      0x02,
+      0x00,
+      0x02,
+      0x41,
+    ]);
+  });
+
+  it("parses GoodWe ID info responses", () => {
+    const response = buildIdInfoResponse();
+
+    assert.equal(isGoodWeIdInfoResponse(response), true);
+    assert.deepEqual(parseIdInfoResponse(response), {
+      firmwareVersion: "01023",
+      modelName: "GW10K-ET",
+      serialNumber: "1234567890ABCDEF",
+      nominalPvVoltage: 620,
+      internalVersion: "ARM205-V1.7",
+      safetyCountryCode: 3,
+    });
+
+    response[5] = 0x81;
+    assert.equal(isGoodWeIdInfoResponse(response), false);
+  });
+});
+
+function buildIdInfoResponse() {
+  const response = Buffer.alloc(73);
+
+  response[0] = 0xaa;
+  response[1] = 0x55;
+  response[2] = 0x7f;
+  response[3] = 0xc0;
+  response[4] = 0x01;
+  response[5] = 0x82;
+  writeAscii(response, 7, 5, "01023");
+  writeAscii(response, 12, 10, "GW10K-ET");
+  writeAscii(response, 38, 16, "1234567890ABCDEF");
+  response.writeUInt32BE(6200, 54);
+  writeAscii(response, 58, 12, "ARM205-V1.7");
+  response[70] = 3;
+
+  const checksum = response
+    .slice(0, response.length - 2)
+    .reduce((total, value) => total + value, 0);
+  response[response.length - 2] = checksum >> 8;
+  response[response.length - 1] = checksum & 0xff;
+
+  return response;
+}
+
+function writeAscii(buffer, start, length, value) {
+  buffer.write(value.slice(0, length), start, length, "ascii");
+}

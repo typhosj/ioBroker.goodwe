@@ -51,6 +51,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 ## Configuration
 
 * `ipAddr`: IP address of the inverter.
+  The adapter validates this as a usable IPv4 host address on startup.
 * `pollCycle`: Base poll cycle in seconds.
 * `timeoutMs`: UDP request timeout in milliseconds.
 * `retries`: Retry count per UDP request.
@@ -63,6 +64,11 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollCeiAutoTest`: Enables CEI auto test registers.
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
 * `cleanupDisabledStates`: Deletes states of disabled optional register groups on adapter start.
+
+The basic settings page also provides two actions:
+
+* `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
+* `Search inverter in network`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899.
 
 ## Troubleshooting
 
@@ -84,6 +90,11 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.0.9 (2026-06-23)
+* Added validation for usable IPv4 inverter addresses
+* Added GoodWe UDP reachability check from the admin configuration
+* Added `/24` network discovery for GoodWe inverters via UDP port 8899
+
 ### 1.0.8 (2026-06-23)
 * Added separate basic and advanced configuration tabs
 * Added per-group optional register polling defaults based on real device feedback

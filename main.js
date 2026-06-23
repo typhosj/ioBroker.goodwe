@@ -19,6 +19,11 @@ const {
   decodeValue,
   valueStates,
 } = require("./lib/status-definitions");
+const {
+  discoverGoodWeInverters,
+  probeGoodWeInverter,
+  validateIpv4Address,
+} = require("./lib/goodwe-discovery");
 
 let tmr_timeout = null;
 
@@ -37,6 +42,7 @@ class Goodwe extends utils.Adapter {
 
     this.inverter = new goodWe.GoodWeUdp(this.log);
     this.on("ready", this.onReady.bind(this));
+    this.on("message", this.onMessage.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
@@ -58,6 +64,15 @@ class Goodwe extends utils.Adapter {
 
     // Reset the connection indicator during startup
     this.setState("info.connection", false, true);
+
+    const ipValidation = validateIpv4Address(this.config.ipAddr);
+
+    if (!ipValidation.valid) {
+      this.log.error(
+        `Invalid inverter IP address "${this.config.ipAddr}": ${ipValidation.reason}`,
+      );
+      return;
+    }
 
     await this.inverter.Connect(this.config.ipAddr, 8899, {
       timeoutMs: this.config.timeoutMs,
@@ -97,6 +112,65 @@ class Goodwe extends utils.Adapter {
     } else {
       // The state was deleted
       this.log.info(`state ${id} deleted`);
+    }
+  }
+
+  async onMessage(obj) {
+    if (!obj?.command) {
+      return;
+    }
+
+    const respond = (payload) => {
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, payload, obj.callback);
+      }
+    };
+
+    try {
+      switch (obj.command) {
+        case "validateIp": {
+          const ip = obj.message?.ip ?? this.config.ipAddr;
+          const validation = validateIpv4Address(ip);
+
+          if (!validation.valid) {
+            respond({
+              valid: false,
+              reachable: false,
+              error: validation.reason,
+            });
+            return;
+          }
+
+          const result = await probeGoodWeInverter(validation.ip, {
+            timeoutMs: Number(obj.message?.timeoutMs) || 1000,
+          });
+
+          respond({
+            valid: true,
+            reachable: result.reachable,
+            ip: validation.ip,
+            idInfo: result.idInfo,
+            error: result.error,
+          });
+          return;
+        }
+
+        case "discoverInverters": {
+          const result = await discoverGoodWeInverters({
+            ip: obj.message?.ip ?? this.config.ipAddr,
+            subnet: obj.message?.subnet,
+            timeoutMs: Number(obj.message?.timeoutMs) || 700,
+          });
+
+          respond(result);
+          return;
+        }
+
+        default:
+          respond({ error: `Unknown command: ${obj.command}` });
+      }
+    } catch (error) {
+      respond({ error: error.message ?? String(error) });
     }
   }
 
