@@ -201,6 +201,24 @@ describe("GoodWe discovery helpers", () => {
       },
     );
   });
+
+  it("omits implausible firmware text from admin select options", () => {
+    assert.deepEqual(
+      formatInverterOption({
+        ip: "192.168.178.29",
+        reachable: true,
+        idInfo: {
+          modelName: "GW10KN-ET",
+          serialNumber: "9010KETU231W1723",
+          firmwareVersion: "0<0<M",
+        },
+      }),
+      {
+        value: "192.168.178.29",
+        label: "192.168.178.29 | GW10KN-ET | SN 9010KETU231W1723",
+      },
+    );
+  });
 });
 
 function buildIdInfoResponse() {

@@ -9,7 +9,7 @@
 				"ipAddr": {
 					"newLine": true,
 					"type": "autocompleteSendTo",
-					"label": "Ip Addr.",
+					"label": "Inverter IP / search",
 					"command": "discoverInverterOptions",
 					"jsonData": "{\"ip\":\"${data.ipAddr}\",\"subnet\":\"${data.discoverySubnet}\",\"timeoutMs\":700,\"concurrency\":64}",
 					"freeSolo": true,
@@ -17,7 +17,7 @@
 					"md": 6,
 					"lg": 6,
 					"placeholder": "192.168.1.42",
-					"help": "IPv4 address of GoodWe inverter. Open the list to select a discovered inverter."
+					"help": "Enter the IPv4 address manually or open this field's dropdown to search and select a discovered inverter."
 				},
 				"discoverySubnet": {
 					"newLine": true,
@@ -35,10 +35,6 @@
 					"label": "Validate inverter IP",
 					"command": "validateIp",
 					"jsonData": "{\"ip\":\"${data.ipAddr}\",\"timeoutMs\":1000}",
-					"button": true,
-					"variant": "contained",
-					"color": "primary",
-					"size": "small",
 					"sm": 12,
 					"md": 3,
 					"lg": 3,
@@ -46,17 +42,13 @@
 				},
 				"discoverInverters": {
 					"type": "sendTo",
-					"label": "Show discovery result",
+					"label": "Test discovery",
 					"command": "discoverInverters",
 					"jsonData": "{\"ip\":\"${data.ipAddr}\",\"subnet\":\"${data.discoverySubnet}\",\"timeoutMs\":700,\"concurrency\":64}",
-					"button": true,
-					"variant": "contained",
-					"color": "primary",
-					"size": "small",
 					"sm": 12,
 					"md": 3,
 					"lg": 3,
-					"help": "Shows raw discovery results. Select a found inverter from the IP address field to apply it."
+					"help": "Tests discovery and shows the raw result. To apply an IP, open the Inverter IP / search dropdown and select a found inverter."
 				},
 				"pollCycle": {
 					"newLine": true,
