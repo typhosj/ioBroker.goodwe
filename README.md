@@ -18,8 +18,8 @@ Manufacturer: [GoodWe](https://www.goodwe.com/)
 
 ## Requirements
 
-* Node.js 20 or newer
-* js-controller 6.0.0 or newer
+* Node.js 22 or newer
+* js-controller 6.0.11 or newer
 
 ## Supported data
 
@@ -100,9 +100,9 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 -->
 ### 1.1.0 (2026-06-24)
 * Migrated the adapter runtime to TypeScript
-* Raised the minimum Node.js version to 20
+* Raised the minimum Node.js version to 22
 * Switched the packaged adapter entry point to the compiled `build/main.js`
-* Updated CI to run on Node.js 20 and verify the npm package contents
+* Updated CI to run on Node.js 22 and 24 and verify the npm package contents
 * Replaced additional mode `*Text` states with enum labels on the numeric mode states
 
 ### 1.0.9 (2026-06-23)
