@@ -1,4 +1,4 @@
-import dgram from "dgram";
+import dgram from "node:dgram";
 import {
   registerGroups,
   type RegisterEntry,
@@ -290,7 +290,7 @@ export class GoodWeUdp {
 
   #clearPendingRequest(request: PendingRequest): void {
     if (request.timeout) {
-      clearTimeout(request.timeout);
+      globalThis.clearTimeout(request.timeout);
       request.timeout = null;
     }
   }
@@ -331,7 +331,7 @@ export class GoodWeUdp {
             reject,
             timeout: null,
           };
-          const timeout = setTimeout(() => {
+          const timeout = globalThis.setTimeout(() => {
             const requestIndex = this.#pendingRequests.indexOf(request);
             if (requestIndex !== -1) {
               this.#pendingRequests.splice(requestIndex, 1);

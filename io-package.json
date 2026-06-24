@@ -16,97 +16,6 @@
         "uk": "Середовище виконання адаптера перенесено на TypeScript і Node.js 20\nДодаткові текстові стани режимів замінено enum-мітками на числових станах режимів",
         "zh-cn": "适配器运行时已迁移到 TypeScript 和 Node.js 20\n额外的模式文本状态已替换为数字模式状态上的枚举标签"
       },
-      "1.0.9": {
-        "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery and selectable inverter list",
-        "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche mit auswählbarer Wechselrichterliste ergänzt",
-        "ru": "Добавлена проверка IPv4-адреса инвертора\nДобавлена проверка доступности GoodWe по UDP\nДобавлен поиск в сети со списком выбора инверторов",
-        "pt": "Adicionada validação IPv4 do inversor\nAdicionada verificação de disponibilidade GoodWe via UDP\nAdicionada descoberta de rede com lista selecionável de inversores",
-        "nl": "IPv4-validatie voor de omvormer toegevoegd\nGoodWe UDP-bereikbaarheidscontrole toegevoegd\nNetwerkdetectie met selecteerbare omvormerlijst toegevoegd",
-        "fr": "Ajout de la validation IPv4 de l'onduleur\nAjout d'un contrôle d'accessibilité UDP GoodWe\nAjout de la découverte réseau avec liste d'onduleurs sélectionnable",
-        "it": "Aggiunta validazione IPv4 dell'inverter\nAggiunto controllo di raggiungibilità UDP GoodWe\nAggiunta ricerca in rete con lista inverter selezionabile",
-        "es": "Añadida validación IPv4 del inversor\nAñadida comprobación de disponibilidad UDP GoodWe\nAñadida búsqueda en red con lista seleccionable de inversores",
-        "pl": "Dodano walidację adresu IPv4 falownika\nDodano sprawdzanie dostępności GoodWe przez UDP\nDodano wykrywanie w sieci z wybieralną listą falowników",
-        "uk": "Додано перевірку IPv4-адреси інвертора\nДодано перевірку доступності GoodWe через UDP\nДодано пошук у мережі зі списком вибору інверторів",
-        "zh-cn": "新增逆变器 IPv4 地址校验\n新增 GoodWe UDP 可达性检查\n新增网络发现和可选逆变器列表"
-      },
-      "1.0.8": {
-        "en": "Added basic and advanced configuration tabs\nAdded per-group optional register polling defaults\nRemoved legacy misspelled states and cleaned up old decoder code",
-        "de": "Basis- und Erweiterte-Einstellungen als Tabs ergänzt\nOptionale Registergruppen einzeln konfigurierbar gemacht\nAlte falsch geschriebene States entfernt und alten Decoder-Code bereinigt",
-        "ru": "Добавлены вкладки базовых и расширенных настроек\nДобавлена отдельная настройка опроса необязательных групп регистров\nУдалены старые состояния с ошибками в названиях и очищен старый код декодера",
-        "pt": "Adicionadas abas de configurações básicas e avançadas\nAdicionada configuração individual para grupos opcionais de registros\nRemovidos estados antigos com nomes incorretos e limpo código antigo de decodificação",
-        "nl": "Tabbladen voor basis- en geavanceerde instellingen toegevoegd\nOptionele registergroepen afzonderlijk configureerbaar gemaakt\nOude fout gespelde states verwijderd en oude decodercode opgeschoond",
-        "fr": "Ajout d'onglets de configuration de base et avancée\nAjout de réglages par groupe pour les registres optionnels\nSuppression des anciens états mal orthographiés et nettoyage de l'ancien décodeur",
-        "it": "Aggiunte schede di configurazione di base e avanzata\nAggiunta configurazione separata per gruppi di registri opzionali\nRimossi vecchi stati con errori di ortografia e ripulito il vecchio decoder",
-        "es": "Añadidas pestañas de configuración básica y avanzada\nAñadida configuración individual para grupos de registros opcionales\nEliminados estados antiguos mal escritos y limpiado el código decodificador antiguo",
-        "pl": "Dodano karty ustawień podstawowych i zaawansowanych\nDodano osobną konfigurację opcjonalnych grup rejestrów\nUsunięto stare błędnie nazwane stany i wyczyszczono stary kod dekodera",
-        "uk": "Додано вкладки базових і розширених налаштувань\nДодано окреме налаштування опитування необов'язкових груп регістрів\nВидалено старі стани з помилками в назвах і очищено старий код декодера",
-        "zh-cn": "添加了基础和高级配置标签页\n为可选寄存器组添加了单独的轮询配置\n移除了旧的拼写错误状态并清理了旧的解码代码"
-      },
-      "1.0.7": {
-        "en": "Hardened UDP communication\nAdded specification based register map and extended GoodWe data points\nAdded decoded status and bitfield states",
-        "de": "UDP-Kommunikation gehärtet\nSpezifikationsbasierte Register-Map und erweiterte GoodWe-Datenpunkte ergänzt\nDekodierte Status- und Bitfeld-Zustände ergänzt",
-        "ru": "Усилена UDP-коммуникация\nДобавлена карта регистров на основе спецификации и расширенные точки данных GoodWe\nДобавлены декодированные состояния статусов и битовых полей",
-        "pt": "Comunicação UDP reforçada\nAdicionado mapa de registros baseado na especificação e pontos de dados GoodWe ampliados\nAdicionados estados decodificados de status e campos de bits",
-        "nl": "UDP-communicatie robuuster gemaakt\nSpecificatiegebaseerde registermap en uitgebreide GoodWe-datapunten toegevoegd\nGedecodeerde status- en bitveldstatussen toegevoegd",
-        "fr": "Communication UDP renforcée\nAjout d'une carte de registres basée sur la spécification et de points de données GoodWe étendus\nAjout d'états décodés pour les statuts et champs de bits",
-        "it": "Comunicazione UDP resa più robusta\nAggiunta mappa registri basata sulla specifica e punti dati GoodWe estesi\nAggiunti stati decodificati per stati e campi bit",
-        "es": "Comunicación UDP reforzada\nAñadido mapa de registros basado en la especificación y puntos de datos GoodWe ampliados\nAñadidos estados decodificados de estado y campos de bits",
-        "pl": "Wzmocniono komunikację UDP\nDodano mapę rejestrów opartą na specyfikacji i rozszerzone punkty danych GoodWe\nDodano zdekodowane stany statusów i pól bitowych",
-        "uk": "Посилено UDP-комунікацію\nДодано карту регістрів на основі специфікації та розширені точки даних GoodWe\nДодано декодовані стани статусів і бітових полів",
-        "zh-cn": "增强了 UDP 通信\n添加了基于规范的寄存器映射和扩展的 GoodWe 数据点\n添加了解码后的状态和位字段状态"
-      },
-      "1.0.6": {
-        "en": "(ty) updated dependencies\n(ty) extended logging",
-        "de": "(ty) updated dependencies\n(ty) extended logging",
-        "ru": "(ty) updated dependencies\n(ty) extended logging",
-        "pt": "(ty) updated dependencies\n(ty) extended logging",
-        "nl": "(ty) updated dependencies\n(ty) extended logging",
-        "fr": "(ty) updated dependencies\n(ty) extended logging",
-        "it": "(ty) updated dependencies\n(ty) extended logging",
-        "es": "(ty) updated dependencies\n(ty) extended logging",
-        "pl": "(ty) updated dependencies\n(ty) extended logging",
-        "uk": "(ty) updated dependencies\n(ty) extended logging",
-        "zh-cn": "(ty) updated dependencies\n(ty) extended logging"
-      },
-      "1.0.5": {
-        "en": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "de": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "ru": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "pt": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "nl": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "fr": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "it": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "es": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "pl": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "uk": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak",
-        "zh-cn": "(ty) Fixed EnergyDayDischarge\n(mrx8) fixed memory leak"
-      },
-      "1.0.4": {
-        "en": "(Thomas Schönberger) Add some Logs for ENETUNREACH error",
-        "de": "(Thomas Schönberger) Fügen Sie einige Logs für ENETUNREACH-Fehler hinzu",
-        "ru": "(Томас Schönberger) Добавьте несколько логов для ошибки ENETUNREACH",
-        "pt": "(Thomas Schönberger) Adicione alguns registros para o erro ENETUNREACH",
-        "nl": "(Thomas Schönberger) Voeg wat Logs toe voor onbelangrijke fouten",
-        "fr": "(Thomas Schönberger) Ajouter quelques Logs pour erreur ENETUNREACH",
-        "it": "(Thomas Schönberger) Aggiungi alcuni Log per ENETUNREACH errore",
-        "es": "(Thomas Schönberger) Añadir algunos registros para el error ENETUNREACH",
-        "pl": "Thomas Schönberger (ang.). Addd some Logs for ENETUNREACH (ang.)",
-        "uk": "(Томас Шенбергер) Додати деякі журнали для ENETUNREACH помилки",
-        "zh-cn": "(Thomas Schönberger) 增加一些E网UNREACH错误的后勤"
-      },
-      "1.0.3": {
-        "en": "(Thomas Schönberger) Add TotalPowerPv object to running Data\n(Thomas Schönberger) Comm Error",
-        "de": "(Thomas Schönberger) TotalPower hinzufügen Pv-Objekt zum Ausführen von Daten\n(Thomas Schönberger) Comm Error",
-        "ru": "(Thomas Schönberger) Добавить TotalPower Pv объект для запуска данных\n(Thomas Schönberger) Comm Ошибка",
-        "pt": "(Thomas Schönberger) Adicionar TotalPower Objeto Pv para executar dados\n(Thomas Schönberger) Erro de Comm",
-        "nl": "Add TotalPower Pv bezwaar tegen het runnen van Data\nComm Error",
-        "fr": "(Thomas Schönberger) Ajouter TotalPower Objet Pv pour l'exécution des données\n(Thomas Schönberger) Erreur de Comm",
-        "it": "(Thomas Schönberger) Aggiungi TotalPower Oggetto Pv per l'esecuzione dei dati\n(Thomas Schönberger) Errore del Comm",
-        "es": "(Thomas Schönberger) Añadir TotalPower Pv objeto para ejecutar datos\n(Thomas Schönberger) Comm Error",
-        "pl": "Thomas Schönberger (ang.). Oficjalna strona Pv\nThomas Schönberger (ang.)",
-        "uk": "(Thomas Schönberger) Додати TotalPower Pv об'єкт для запуску даних\n(Томас Шенбергер)",
-        "zh-cn": "(Thomas Schönberger) 数据操作目标\n(Thomas Schönberger) Commrror"
-      },
       "1.0.2": {
         "en": "(Thomas Schönberger) Add Bluefox to npm",
         "de": "(Thomas Schönberger) Bluefox zu npm hinzufügen",
@@ -119,48 +28,8 @@
         "pl": "(Thomas Schönberger) Addd Bluefox tom pp",
         "uk": "(Thomas Schönberger) Додати Bluefox до npm",
         "zh-cn": "(Thomas Schönberger)"
-      },
-      "1.0.1": {
-        "en": "(Thomas Schönberger) initial release",
-        "de": "(Thomas Schönberger) erste Veröffentlichung",
-        "ru": "(Thomas Schönberger) начальный релиз",
-        "pt": "(Thomas Schönberger) lançamento inicial",
-        "nl": "(Thomas Schönberger) eerste vrijlating",
-        "fr": "(Thomas Schönberger) sortie initiale",
-        "it": "(Thomas Schönberger) rilascio iniziale",
-        "es": "(Thomas Schönberger) versión inicial",
-        "pl": "(Thomas Schönberger) pierwsze wydanie",
-        "uk": "(Tomas Schönberger) початковий реліз",
-        "zh-cn": "(Thomas Schönberger) 初步释放"
-      },
-      "1.0.0": {
-        "en": "(Thomas Schönberger) initial release",
-        "de": "(Thomas Schönberger) erste Veröffentlichung",
-        "ru": "(Thomas Schönberger) начальный релиз",
-        "pt": "(Thomas Schönberger) lançamento inicial",
-        "nl": "(Thomas Schönberger) eerste vrijlating",
-        "fr": "(Thomas Schönberger) sortie initiale",
-        "it": "(Thomas Schönberger) rilascio iniziale",
-        "es": "(Thomas Schönberger) versión inicial",
-        "pl": "(Thomas Schönberger) pierwsze wydanie",
-        "uk": "(Tomas Schönberger) початковий реліз",
-        "zh-cn": "(Thomas Schönberger) 初步释放"
-      },
-      "0.0.1": {
-        "en": "initial release",
-        "de": "Erstveröffentlichung",
-        "ru": "Начальная версия",
-        "pt": "lançamento inicial",
-        "nl": "Eerste uitgave",
-        "fr": "Première version",
-        "it": "Versione iniziale",
-        "es": "Versión inicial",
-        "pl": "Pierwsze wydanie",
-        "zh-cn": "首次出版",
-        "uk": "початковий випуск"
       }
     },
-    "title": "GoodWe",
     "titleLang": {
       "en": "GoodWe",
       "de": "GoodWe",
@@ -198,9 +67,7 @@
       "BH",
       "BT"
     ],
-    "license": "MIT",
     "platform": "Javascript/Node.js",
-    "main": "build/main.js",
     "icon": "goodwe.png",
     "enabled": true,
     "extIcon": "https://raw.githubusercontent.com/typhosj/ioBroker.goodwe/main/admin/goodwe.png",
@@ -209,7 +76,6 @@
     "mode": "daemon",
     "type": "energy",
     "compact": true,
-    "materialize": true,
     "messagebox": true,
     "supportedMessages": {
       "custom": true
@@ -221,14 +87,20 @@
     },
     "dependencies": [
       {
-        "js-controller": ">=6.0.0"
+        "js-controller": ">=6.0.11"
       }
     ],
     "globalDependencies": [
       {
-        "admin": ">=5.1.13"
+        "admin": ">=7.6.17"
       }
-    ]
+    ],
+    "tier": 3,
+    "licenseInformation": {
+      "license": "MIT",
+      "type": "free",
+      "link": "https://github.com/typhosj/ioBroker.goodwe/blob/main/LICENSE"
+    }
   },
   "native": {
     "ipAddr": "",
