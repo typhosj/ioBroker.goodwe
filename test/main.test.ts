@@ -395,6 +395,7 @@ describe("state mapping", () => {
         objects.push({ id, object });
         return Promise.resolve(undefined);
       },
+      extendObjectAsync: () => Promise.resolve(undefined),
       getObjectAsync: () => Promise.resolve(undefined),
       delObjectAsync: () => Promise.resolve(undefined),
       setStateChangedAsync: () => Promise.resolve(undefined),
@@ -415,12 +416,63 @@ describe("state mapping", () => {
     });
   });
 
+  it("updates enum labels on existing numeric mode states", async () => {
+    let enumUpdate: ioBroker.PartialObject | undefined;
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: (_id: string, object: ioBroker.PartialObject) => {
+        enumUpdate = object;
+        return Promise.resolve(undefined);
+      },
+      getObjectAsync: (id: string) =>
+        Promise.resolve(
+          id === "RunningData.GridMode"
+            ? {
+                _id: id,
+                type: "state",
+                common: {
+                  name: "GridMode",
+                  type: "number",
+                  role: "value",
+                  read: true,
+                  write: false,
+                },
+                native: {},
+              }
+            : undefined,
+        ),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+    const manager = new GoodWeStateManager(adapter, {} as unknown as GoodWeUdp);
+
+    await manager.UpdateExistingStateEnums("RunningData.GridMode", {
+      0: "Loss",
+      1: "OK",
+      2: "Fault",
+    });
+
+    assert.deepEqual(enumUpdate, {
+      type: "state",
+      common: {
+        states: {
+          0: "Loss",
+          1: "OK",
+          2: "Fault",
+        },
+      },
+    });
+  });
+
   it("writes mapped register values through setStateChangedAsync", async () => {
     const writes: StateWrite[] = [];
     const adapter: StateAdapterLike = {
       config: testConfig,
       log: testLogger,
       setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: () => Promise.resolve(undefined),
       getObjectAsync: () => Promise.resolve(undefined),
       delObjectAsync: () => Promise.resolve(undefined),
       setStateChangedAsync: (
@@ -463,6 +515,58 @@ describe("state mapping", () => {
 
     assert.deepEqual(writes, [
       { id: "RunningData.PV1.Voltage", value: 231.5, ack: true },
+    ]);
+  });
+
+  it("treats charging or discharging battery mode with zero power as standby", async () => {
+    const writes: StateWrite[] = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: () => Promise.resolve(undefined),
+      getObjectAsync: () => Promise.resolve(undefined),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: (
+        id: string,
+        value: ioBroker.StateValue,
+        ack: boolean,
+      ) => {
+        writes.push({ id, value, ack });
+        return Promise.resolve(undefined);
+      },
+    };
+    const inverter = {
+      RunningData: {
+        Battery1: { Mode: 2, Power: 0 },
+      },
+    };
+    const manager = new GoodWeStateManager(
+      adapter,
+      inverter as unknown as GoodWeUdp,
+    );
+
+    await manager.UpdateStatesFromRegisterMap({
+      name: "RunningData",
+      start: 0,
+      count: 1,
+      channel: "RunningData",
+      entries: [
+        {
+          address: 0,
+          state: "RunningData.Battery1.Mode",
+          model: "Battery1.Mode",
+          type: TYPE.U16,
+          registers: 1,
+          scale: 1,
+          role: "value",
+          byteOffset: 0,
+        },
+      ],
+    });
+
+    assert.deepEqual(writes, [
+      { id: "RunningData.Battery1.Mode", value: 1, ack: true },
     ]);
   });
 });

@@ -21,6 +21,10 @@ interface StateAdapter {
     id: string,
     object: ioBroker.SettableObject,
   ) => Promise<unknown>;
+  extendObjectAsync: (
+    id: string,
+    object: ioBroker.PartialObject,
+  ) => Promise<unknown>;
   getObjectAsync: (id: string) => Promise<ioBroker.Object | null | undefined>;
   delObjectAsync: (id: string) => Promise<unknown>;
   setStateChangedAsync: (
@@ -135,8 +139,34 @@ class GoodWeStateManager {
             scale: item.scale,
           },
         });
+        await this.UpdateExistingStateEnums(item.state, item.states);
       }
     }
+  }
+
+  async UpdateExistingStateEnums(
+    id: string,
+    states: ioBroker.StateCommon["states"] | undefined,
+  ): Promise<void> {
+    if (!states) {
+      return;
+    }
+
+    const object = await this.adapter.getObjectAsync(id);
+
+    if (object?.type !== "state") {
+      return;
+    }
+
+    if (JSON.stringify(object.common.states) === JSON.stringify(states)) {
+      return;
+    }
+
+    await this.adapter.extendObjectAsync(id, {
+      type: "state",
+      common: { states },
+    });
+    this.adapter.log.info(`Updated enum labels for ${id}`);
   }
 
   async CreateDerivedObjects(): Promise<void> {
@@ -276,15 +306,14 @@ class GoodWeStateManager {
   }
 
   async UpdateStatesFromRegisterMap(group: RegisterGroup): Promise<void> {
+    const source = (this.inverter as unknown as Record<string, unknown>)[
+      this.GroupGetter(group)
+    ];
+
     for (const item of group.entries) {
       await this.adapter.setStateChangedAsync(
         item.state,
-        this.GetMappedValue(
-          item.model,
-          (this.inverter as unknown as Record<string, unknown>)[
-            this.GroupGetter(group)
-          ],
-        ),
+        this.GetStateValue(item.state, item.model, source),
         true,
       );
     }
@@ -317,6 +346,24 @@ class GoodWeStateManager {
       default:
         return "";
     }
+  }
+
+  GetStateValue(
+    state: string,
+    path: string,
+    source: unknown,
+  ): ioBroker.StateValue {
+    const value = this.GetMappedValue(path, source);
+
+    if (
+      state === "RunningData.Battery1.Mode" &&
+      (value === 2 || value === 3) &&
+      this.GetMappedValue("Battery1.Power", source) === 0
+    ) {
+      return 1;
+    }
+
+    return value;
   }
 
   GetMappedValue(path: string, source: unknown): ioBroker.StateValue {
