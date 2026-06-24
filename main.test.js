@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const EventEmitter = require("node:events");
+const proxyquire = require("proxyquire");
 const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
 const {
   bitfields,
@@ -238,6 +240,32 @@ describe("GoodWe discovery helpers", () => {
   });
 });
 
+describe("GoodWe UDP parser", () => {
+  it("decodes register strings as ASCII text", async () => {
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(registerGroups.deviceInfo, (response) => {
+        response.write("GW1234567890ABCD", 11, 16, "ascii");
+      });
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("deviceInfo"), true);
+    assert.equal(inverter.DeviceInfo.SerialNumber, "GW1234567890ABCD");
+  });
+
+  it("decodes signed 32 bit register values", async () => {
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(registerGroups.runningData, (response) => {
+        response.writeInt32BE(-12345, 5 + (35216 - 35100) * 2);
+      });
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(inverter.RunningData.DerateFrozenPower, -12345);
+  });
+});
+
 function buildIdInfoResponse() {
   const response = Buffer.alloc(73);
 
@@ -265,4 +293,68 @@ function buildIdInfoResponse() {
 
 function writeAscii(buffer, start, length, value) {
   buffer.write(value.slice(0, length), start, length, "ascii");
+}
+
+function createInverter(socket) {
+  const { GoodWeUdp } = proxyquire("./GoodWe/GoodWe", {
+    dgram: {
+      createSocket: () => socket,
+    },
+  });
+
+  return new GoodWeUdp({
+    debug: () => {},
+    warn: () => {},
+  });
+}
+
+class FakeSocket extends EventEmitter {
+  constructor(responseFactory) {
+    super();
+    this.responseFactory = responseFactory;
+  }
+
+  send(_buffer, _offset, _length, _port, _ip, callback) {
+    callback(undefined);
+    process.nextTick(() => this.emit("message", this.responseFactory()));
+  }
+
+  close() {}
+}
+
+function buildRegisterResponse(group, writePayload) {
+  const response = Buffer.alloc(5 + group.count * 2 + 2);
+
+  response[0] = 0xaa;
+  response[1] = 0x55;
+  response[2] = 0xf7;
+  response[3] = 0x03;
+  response[4] = group.count * 2;
+
+  writePayload(response);
+
+  const crc = calculateCrc16(response, 2, response.length - 4);
+  response[response.length - 2] = crc >> 8;
+  response[response.length - 1] = crc & 0xff;
+
+  return response;
+}
+
+function calculateCrc16(data, start, length) {
+  let crc = 0xffff;
+
+  for (let pos = start; pos < start + length; pos++) {
+    crc ^= data[pos];
+
+    for (let bit = 8; bit !== 0; bit--) {
+      if ((crc & 0x0001) !== 0) {
+        crc >>= 1;
+        crc ^= 0xa001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+
+  return ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
 }

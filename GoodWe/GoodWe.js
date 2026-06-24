@@ -617,13 +617,10 @@ class GoodWeUdp {
   }
 
   #GetStringFromByteArray(Data, Start, Length) {
-    let buf = new Uint8Array(Length);
-    let value;
-
-    buf = Data.slice(Start, Start + Length);
-    value = buf.toString();
-
-    return value;
+    return Buffer.from(Data.slice(Start, Start + Length))
+      .toString("ascii")
+      .replace(/\0/g, "")
+      .trim();
   }
 
   #GetUintFromByteArray(Data, Start, Length) {
@@ -643,25 +640,7 @@ class GoodWeUdp {
   }
 
   #GetIntFromByteArray(Data, Start, Length) {
-    let buf = new Uint8Array(Length);
-    let i;
-    let value = 0;
-
-    buf = Data.slice(Start, Start + Length);
-    //buf.reverse();
-
-    for (i = 0; i < Length; i++) {
-      value = value << 8;
-      value = value + buf[i];
-    }
-
-    if ((value & 0x8000) == 0x8000) {
-      value = value ^ 0xffff;
-      value = value + 1;
-      value = value * -1;
-    }
-
-    return value;
+    return Buffer.from(Data.slice(Start, Start + Length)).readIntBE(0, Length);
   }
 
   #GetFloatFromByteArray(Data, Start, Length) {

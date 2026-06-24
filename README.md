@@ -66,11 +66,10 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
 
 The basic settings page also provides discovery helpers:
-The basic settings page also provides discovery helpers:
 
 * `Inverter IP`: Stores only the inverter IPv4 address.
 * `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
-* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter. Copy only the IP address into `Inverter IP`.
+* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter.
 
 ## Troubleshooting
 

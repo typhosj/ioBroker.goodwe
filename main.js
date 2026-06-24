@@ -64,7 +64,7 @@ class Goodwe extends utils.Adapter {
     await this.CreateDecodedStatusObjects();
 
     // Reset the connection indicator during startup
-    this.setState("info.connection", false, true);
+    await this.setStateChangedAsync("info.connection", false, true);
 
     const configuredIp = extractIpv4Address(this.config.ipAddr);
 
@@ -414,7 +414,7 @@ class Goodwe extends utils.Adapter {
 
   async UpdateStatesFromRegisterMap(group) {
     for (const item of group.entries) {
-      await this.setStateAsync(
+      await this.setStateChangedAsync(
         item.state,
         this.GetMappedValue(item.model, this.inverter[this.GroupGetter(group)]),
         true,
@@ -458,29 +458,29 @@ class Goodwe extends utils.Adapter {
   async UpdateDecodedRunningStatuses() {
     const data = this.inverter.RunningData;
 
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.GridModeText",
       decodeValue(data.GridMode, valueStates.gridStatus),
       true,
     );
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.WorkModeText",
       decodeValue(data.WorkMode, valueStates.workMode),
       true,
     );
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.OperationModeText",
       decodeValue(data.OperationMode, valueStates.operationMode),
       true,
     );
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.Battery1.ModeText",
       decodeValue(data.Battery1.Mode, valueStates.batteryStatus),
       true,
     );
 
     for (const pv of ["PV1", "PV2", "PV3", "PV4"]) {
-      await this.setStateAsync(
+      await this.setStateChangedAsync(
         `RunningData.${pv}.ModeText`,
         decodeValue(data[pv.replace("PV", "Pv")].Mode, valueStates.pvMode),
         true,
@@ -488,19 +488,19 @@ class Goodwe extends utils.Adapter {
     }
 
     for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"]) {
-      await this.setStateAsync(
+      await this.setStateChangedAsync(
         `RunningData.${phase}.ModeText`,
         decodeValue(data[phase].Mode, valueStates.backupStatus),
         true,
       );
     }
 
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.ErrorMessageActive",
       decodeBitfield(data.ErrorMessage, bitfields.errorMessage).join(", "),
       true,
     );
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.DiagStatusActive",
       decodeBitfield(data.DiagStatusL, bitfields.diagnosticStatus).join(", "),
       true,
@@ -513,7 +513,7 @@ class Goodwe extends utils.Adapter {
     const warningCode =
       (bms.WarningCodeH ?? 0) * 0x10000 + (bms.WarningCodeL ?? 0);
 
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "BMSInfo.ErrorCodeActive",
       decodeBitfield(errorCode, bitfields.bmsAlarm).join(", "),
       true,
@@ -523,12 +523,12 @@ class Goodwe extends utils.Adapter {
       return;
     }
 
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "BMSInfo.WarningCodeActive",
       decodeBitfield(warningCode, bitfields.bmsWarning).join(", "),
       true,
     );
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "BMSInfo.DRMStatusActive",
       decodeBitfield(bms.DRMStatus ?? 0, bitfields.drmStatus).join(", "),
       true,
@@ -539,25 +539,29 @@ class Goodwe extends utils.Adapter {
     const success = await this.inverter.ReadGroup("deviceInfo");
 
     if (!success) {
-      await this.setStateAsync("info.connection", false, true);
+      await this.setStateChangedAsync("info.connection", false, true);
       return;
     }
 
     await this.UpdateStatesFromRegisterMap(registerGroups.deviceInfo);
-    await this.setStateAsync("info.connection", this.inverter.Status, true);
+    await this.setStateChangedAsync(
+      "info.connection",
+      this.inverter.Status,
+      true,
+    );
   }
 
   async UpdateRunningData() {
     const success = await this.inverter.ReadGroup("runningData");
 
     if (!success) {
-      await this.setStateAsync("info.connection", false, true);
+      await this.setStateChangedAsync("info.connection", false, true);
       return;
     }
 
     await this.UpdateStatesFromRegisterMap(registerGroups.runningData);
     await this.UpdateDecodedRunningStatuses();
-    await this.setStateAsync(
+    await this.setStateChangedAsync(
       "RunningData.TotalPowerPv",
       this.inverter.RunningData.TotalPowerPv,
       true,
@@ -568,7 +572,7 @@ class Goodwe extends utils.Adapter {
     const success = await this.inverter.ReadGroup("extComData");
 
     if (!success) {
-      await this.setStateAsync("info.connection", false, true);
+      await this.setStateChangedAsync("info.connection", false, true);
       return;
     }
 
@@ -579,7 +583,7 @@ class Goodwe extends utils.Adapter {
     const success = await this.inverter.ReadGroup("bmsInfo");
 
     if (!success) {
-      await this.setStateAsync("info.connection", false, true);
+      await this.setStateChangedAsync("info.connection", false, true);
       return;
     }
 
@@ -604,7 +608,11 @@ class Goodwe extends utils.Adapter {
     }
 
     await this.UpdateDecodedBmsStatuses();
-    await this.setStateAsync("info.connection", this.inverter.Status, true);
+    await this.setStateChangedAsync(
+      "info.connection",
+      this.inverter.Status,
+      true,
+    );
   }
 
   async myTimer() {
@@ -612,7 +620,7 @@ class Goodwe extends utils.Adapter {
       if (this.inverter.Status == false) {
         this.cycleCnt = 0;
         const success = await this.inverter.ReadIdInfo();
-        await this.setStateAsync("info.connection", success, true);
+        await this.setStateChangedAsync("info.connection", success, true);
       } else {
         switch (this.cycleCnt) {
           case 1:
@@ -647,7 +655,7 @@ class Goodwe extends utils.Adapter {
       }
     } catch (error) {
       this.log.warn(`poll cycle failed: ${error.message ?? error}`);
-      await this.setStateAsync("info.connection", false, true);
+      await this.setStateChangedAsync("info.connection", false, true);
     } finally {
       this.pollTimer = this.setTimeout(() => this.myTimer(), 1000);
     }
