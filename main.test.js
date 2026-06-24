@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const EventEmitter = require("node:events");
 const proxyquire = require("proxyquire");
+const { PollScheduler } = require("./scheduler");
 const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
 const {
   bitfields,
@@ -263,6 +264,39 @@ describe("GoodWe UDP parser", () => {
 
     assert.equal(await inverter.ReadGroup("runningData"), true);
     assert.equal(inverter.RunningData.DerateFrozenPower, -12345);
+  });
+});
+
+describe("poll scheduler", () => {
+  it("owns poll timeout lifecycle", async () => {
+    let timeoutCallback = () => {};
+    let clearedTimer;
+    let pollCount = 0;
+    const adapter = {
+      log: { warn: () => {} },
+      setTimeout: (callback) => {
+        timeoutCallback = callback;
+        return "timer";
+      },
+      clearTimeout: (timer) => {
+        clearedTimer = timer;
+      },
+    };
+    const scheduler = new PollScheduler(adapter, async () => {
+      pollCount++;
+    }, 1000);
+
+    scheduler.start();
+    await Promise.resolve();
+    assert.equal(pollCount, 1);
+    assert.equal(typeof timeoutCallback, "function");
+
+    scheduler.stop();
+    assert.equal(clearedTimer, "timer");
+
+    timeoutCallback();
+    await Promise.resolve();
+    assert.equal(pollCount, 1);
   });
 });
 

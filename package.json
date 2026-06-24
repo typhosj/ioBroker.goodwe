@@ -58,6 +58,10 @@
     "io-package.json",
     "LICENSE",
     "main.js",
+    "scheduler.js",
+    "states.js",
+    "api/",
+    "mappers/",
     "GoodWe/"
   ],
   "scripts": {
