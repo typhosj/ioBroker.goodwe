@@ -92,14 +92,14 @@
     ],
     "globalDependencies": [
       {
-        "admin": ">=7.6.17"
+        "admin": ">=7.6.20"
       }
     ],
     "tier": 3,
     "licenseInformation": {
       "license": "MIT",
       "type": "free",
-      "link": "https://github.com/typhosj/ioBroker.goodwe/blob/main/LICENSE"
+      "link": "https://opensource.org/license/mit"
     }
   },
   "native": {
