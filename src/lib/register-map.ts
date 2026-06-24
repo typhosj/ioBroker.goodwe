@@ -8,9 +8,39 @@ const TYPE = {
   FLOAT: "FLOAT",
   STRING: "STRING",
   BYTE: "BYTE",
-};
+} as const;
 
-const registerGroups = {
+type RegisterType = (typeof TYPE)[keyof typeof TYPE];
+
+interface RegisterEntry {
+  address: number;
+  state: string;
+  model: string;
+  type: RegisterType;
+  registers: number;
+  scale: number;
+  unit?: string;
+  role: string;
+  byteOffset: number;
+}
+
+interface RegisterGroup {
+  name: string;
+  start: number;
+  count: number;
+  channel: string;
+  entries: RegisterEntry[];
+}
+
+interface EntryOptions {
+  registers?: number;
+  scale?: number;
+  unit?: string;
+  role?: string;
+  byteOffset?: number;
+}
+
+const registerGroups: Record<string, RegisterGroup> = {
   deviceInfo: {
     name: "DeviceInfo",
     start: 35000,
@@ -963,7 +993,7 @@ const registerGroups = {
   },
 };
 
-const optionalGroupConfigs = {
+const optionalGroupConfigs: Record<string, string> = {
   deviceSimccid: "pollSimccid",
   extComDataExtended: "pollExtendedMeter",
   flashInfo: "pollFlashInfo",
@@ -973,7 +1003,13 @@ const optionalGroupConfigs = {
   powerLimit: "pollPowerLimit",
 };
 
-function entry(address, state, model, type, options = {}) {
+function entry(
+  address: number,
+  state: string,
+  model: string,
+  type: RegisterType,
+  options: EntryOptions = {},
+): RegisterEntry {
   return {
     address,
     state,
@@ -987,7 +1023,7 @@ function entry(address, state, model, type, options = {}) {
   };
 }
 
-function typeRegisterCount(type) {
+function typeRegisterCount(type: RegisterType): number {
   switch (type) {
     case TYPE.U32:
     case TYPE.S32:
@@ -999,11 +1035,11 @@ function typeRegisterCount(type) {
   }
 }
 
-function range(start, end) {
+function range(start: number, end: number): number[] {
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
-function ceiLineEntries(line, start) {
+function ceiLineEntries(line: number, start: number): RegisterEntry[] {
   const prefix = `CEIAutoTest.Line${line}`;
   const model = `Line${line}`;
 
@@ -1174,7 +1210,7 @@ function ceiLineEntries(line, start) {
   ];
 }
 
-function roleForUnit(unit) {
+function roleForUnit(unit?: string): string {
   switch (unit) {
     case "W":
     case "var":
@@ -1203,8 +1239,5 @@ function roleForUnit(unit) {
   }
 }
 
-module.exports = {
-  optionalGroupConfigs,
-  TYPE,
-  registerGroups,
-};
+export type { RegisterEntry, RegisterGroup };
+export { optionalGroupConfigs, TYPE, registerGroups };

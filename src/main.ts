@@ -4,18 +4,21 @@
  * Created with @iobroker/create-adapter v2.3.0
  */
 
-const utils = require("@iobroker/adapter-core");
-const { handleAdapterMessage } = require("./api/admin-messages");
-const goodWe = require("./GoodWe/GoodWe");
-const {
+import * as utils from "@iobroker/adapter-core";
+import {
+  type AdapterMessage,
+  handleAdapterMessage,
+} from "./api/admin-messages";
+import { GoodWeUdp } from "./GoodWe/GoodWe";
+import {
   extractIpv4Address,
   validateIpv4Address,
-} = require("./lib/goodwe-discovery");
-const { GoodWePollScheduler } = require("./scheduler");
-const GoodWeStateManager = require("./states");
+} from "./lib/goodwe-discovery";
+import { GoodWePollScheduler } from "./scheduler";
+import GoodWeStateManager from "./states";
 
 class Goodwe extends utils.Adapter {
-  inverter = new goodWe.GoodWeUdp(this.log);
+  inverter = new GoodWeUdp(this.log);
   states = new GoodWeStateManager(this, this.inverter);
   pollScheduler = new GoodWePollScheduler(
     this,
@@ -25,9 +28,9 @@ class Goodwe extends utils.Adapter {
   );
 
   /**
-   * @param {Partial<utils.AdapterOptions>} [options]
+   * @param [options]
    */
-  constructor(options) {
+  constructor(options: Partial<utils.AdapterOptions> = {}) {
     super({
       ...options,
       name: "goodwe",
@@ -39,8 +42,8 @@ class Goodwe extends utils.Adapter {
     this.on("unload", this.onUnload.bind(this));
   }
 
-  InitializeServices() {
-    this.inverter = new goodWe.GoodWeUdp(this.log);
+  InitializeServices(): void {
+    this.inverter = new GoodWeUdp(this.log);
     this.states = new GoodWeStateManager(this, this.inverter);
     this.pollScheduler = new GoodWePollScheduler(
       this,
@@ -53,7 +56,7 @@ class Goodwe extends utils.Adapter {
   /**
    * Is called when databases are connected and adapter received configuration.
    */
-  async onReady() {
+  async onReady(): Promise<void> {
     this.InitializeServices();
     await this.states.InitializeObjects();
     await this.states.SetConnection(false);
@@ -86,9 +89,9 @@ class Goodwe extends utils.Adapter {
   /**
    * Is called when adapter shuts down - callback has to be called under any circumstances!
    *
-   * @param {() => void} callback
+   * @param callback
    */
-  onUnload(callback) {
+  onUnload(callback: () => void): void {
     try {
       this.pollScheduler.stop();
       this.inverter.destructor();
@@ -103,10 +106,10 @@ class Goodwe extends utils.Adapter {
   /**
    * Is called if a subscribed state changes
    *
-   * @param {string} id
-   * @param {ioBroker.State | null | undefined} state
+   * @param id
+   * @param state
    */
-  onStateChange(id, state) {
+  onStateChange(id: string, state: ioBroker.State | null | undefined): void {
     if (state) {
       this.log.info(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
     } else {
@@ -114,16 +117,17 @@ class Goodwe extends utils.Adapter {
     }
   }
 
-  async onMessage(obj) {
+  async onMessage(obj: AdapterMessage): Promise<void> {
     await handleAdapterMessage(this, obj);
   }
 }
 
 if (require.main !== module) {
   /**
-   * @param {Partial<utils.AdapterOptions>} [options]
+   * @param [options]
    */
-  module.exports = (options) => new Goodwe(options);
+  module.exports = (options: Partial<utils.AdapterOptions> = {}) =>
+    new Goodwe(options);
 } else {
-  new Goodwe();
+  new Goodwe({});
 }

@@ -1,26 +1,49 @@
 "use strict";
 
-const {
+import {
   optionalGroupConfigs,
+  type RegisterGroup,
   registerGroups,
   TYPE,
-} = require("./lib/register-map");
-const {
+} from "./lib/register-map";
+import {
+  type BmsStatusData,
   getDecodedBmsStatuses,
   getDecodedRunningStatuses,
-} = require("./mappers/status-mapper");
+  type RunningStatusData,
+} from "./mappers/status-mapper";
+import type { GoodWeUdp } from "./GoodWe/GoodWe";
 
-const optionalDerivedStates = {
+interface StateAdapter {
+  config: ioBroker.AdapterConfig;
+  log: ioBroker.Logger;
+  setObjectNotExistsAsync: (
+    id: string,
+    object: ioBroker.SettableObject,
+  ) => Promise<unknown>;
+  getObjectAsync: (id: string) => Promise<ioBroker.Object | null | undefined>;
+  delObjectAsync: (id: string) => Promise<unknown>;
+  setStateChangedAsync: (
+    id: string,
+    state: ioBroker.StateValue,
+    ack: boolean,
+  ) => Promise<unknown>;
+}
+
+const optionalDerivedStates: Record<string, string[]> = {
   bmsInfoExtended: ["BMSInfo.WarningCodeActive", "BMSInfo.DRMStatusActive"],
 };
 
 class GoodWeStateManager {
-  constructor(adapter, inverter) {
+  private adapter: StateAdapter;
+  private inverter: GoodWeUdp;
+
+  constructor(adapter: StateAdapter, inverter: GoodWeUdp) {
     this.adapter = adapter;
     this.inverter = inverter;
   }
 
-  async InitializeObjects() {
+  async InitializeObjects(): Promise<void> {
     await this.DeleteLegacyTypoStates();
     await this.CleanupDisabledOptionalStates();
     await this.CreateObjectsFromRegisterMap();
@@ -28,11 +51,11 @@ class GoodWeStateManager {
     await this.CreateDecodedStatusObjects();
   }
 
-  async SetConnection(value) {
+  async SetConnection(value: boolean): Promise<void> {
     await this.adapter.setStateChangedAsync("info.connection", value, true);
   }
 
-  IsRegisterGroupEnabled(groupName) {
+  IsRegisterGroupEnabled(groupName: string): boolean {
     const configKey = optionalGroupConfigs[groupName];
 
     if (!configKey) {
@@ -41,12 +64,12 @@ class GoodWeStateManager {
 
     return (
       this.adapter.config.pollExtended !== false &&
-      this.adapter.config[configKey] === true
+      (this.adapter.config as Record<string, unknown>)[configKey] === true
     );
   }
 
-  async CreateObjectsFromRegisterMap() {
-    const channels = new Set();
+  async CreateObjectsFromRegisterMap(): Promise<void> {
+    const channels = new Set<string>();
 
     for (const [groupName, group] of Object.entries(registerGroups)) {
       if (!this.IsRegisterGroupEnabled(groupName)) {
@@ -100,7 +123,7 @@ class GoodWeStateManager {
     }
   }
 
-  async CreateDerivedObjects() {
+  async CreateDerivedObjects(): Promise<void> {
     await this.adapter.setObjectNotExistsAsync("RunningData.TotalPowerPv", {
       type: "state",
       common: {
@@ -115,8 +138,8 @@ class GoodWeStateManager {
     });
   }
 
-  async CleanupDisabledOptionalStates() {
-    const enabledChannels = new Set();
+  async CleanupDisabledOptionalStates(): Promise<void> {
+    const enabledChannels = new Set<string>();
 
     for (const [groupName, group] of Object.entries(registerGroups)) {
       if (!this.IsRegisterGroupEnabled(groupName)) {
@@ -160,7 +183,7 @@ class GoodWeStateManager {
     }
   }
 
-  GetRegisterGroupChannels(group) {
+  GetRegisterGroupChannels(group: RegisterGroup): string[] {
     const channels = new Set([group.channel]);
 
     for (const item of group.entries) {
@@ -176,7 +199,7 @@ class GoodWeStateManager {
     return Array.from(channels);
   }
 
-  async DeleteObjectIfExists(id) {
+  async DeleteObjectIfExists(id: string): Promise<void> {
     const object = await this.adapter.getObjectAsync(id);
 
     if (object) {
@@ -185,7 +208,7 @@ class GoodWeStateManager {
     }
   }
 
-  async DeleteLegacyTypoStates() {
+  async DeleteLegacyTypoStates(): Promise<void> {
     for (const state of [
       "RunningData.ModulTemperature",
       "RunningData.SaftyCountry",
@@ -199,7 +222,7 @@ class GoodWeStateManager {
     }
   }
 
-  async CreateDecodedStatusObjects() {
+  async CreateDecodedStatusObjects(): Promise<void> {
     const states = [
       "RunningData.GridModeText",
       "RunningData.WorkModeText",
@@ -236,17 +259,22 @@ class GoodWeStateManager {
     }
   }
 
-  async UpdateStatesFromRegisterMap(group) {
+  async UpdateStatesFromRegisterMap(group: RegisterGroup): Promise<void> {
     for (const item of group.entries) {
       await this.adapter.setStateChangedAsync(
         item.state,
-        this.GetMappedValue(item.model, this.inverter[this.GroupGetter(group)]),
+        this.GetMappedValue(
+          item.model,
+          (this.inverter as unknown as Record<string, unknown>)[
+            this.GroupGetter(group)
+          ],
+        ),
         true,
       );
     }
   }
 
-  GroupGetter(group) {
+  GroupGetter(group: RegisterGroup): string {
     switch (group.name) {
       case "DeviceInfo":
         return "DeviceInfo";
@@ -275,19 +303,31 @@ class GoodWeStateManager {
     }
   }
 
-  GetMappedValue(path, source) {
-    return path.split(".").reduce((current, part) => current?.[part], source);
+  GetMappedValue(path: string, source: unknown): ioBroker.StateValue {
+    const value = path
+      .split(".")
+      .reduce<unknown>(
+        (current, part) =>
+          current && typeof current === "object"
+            ? (current as Record<string, unknown>)[part]
+            : undefined,
+        source,
+      );
+
+    return value as ioBroker.StateValue;
   }
 
-  async UpdateDecodedRunningStatuses() {
-    for (const state of getDecodedRunningStatuses(this.inverter.RunningData)) {
+  async UpdateDecodedRunningStatuses(): Promise<void> {
+    for (const state of getDecodedRunningStatuses(
+      this.inverter.RunningData as RunningStatusData,
+    )) {
       await this.adapter.setStateChangedAsync(state.id, state.value, true);
     }
   }
 
-  async UpdateDecodedBmsStatuses() {
+  async UpdateDecodedBmsStatuses(): Promise<void> {
     for (const state of getDecodedBmsStatuses(
-      this.inverter.BmsInfo,
+      this.inverter.BmsInfo as BmsStatusData,
       this.IsRegisterGroupEnabled("bmsInfoExtended"),
     )) {
       await this.adapter.setStateChangedAsync(state.id, state.value, true);
@@ -295,4 +335,5 @@ class GoodWeStateManager {
   }
 }
 
+export default GoodWeStateManager;
 module.exports = GoodWeStateManager;

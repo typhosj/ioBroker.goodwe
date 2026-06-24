@@ -1,17 +1,39 @@
 "use strict";
 
-const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
+import { optionalGroupConfigs, registerGroups } from "./lib/register-map";
+import type { GoodWeUdp } from "./GoodWe/GoodWe";
+import type GoodWeStateManager from "./states";
+
+interface SchedulerAdapter {
+  config: ioBroker.AdapterConfig;
+  log: ioBroker.Logger;
+  setTimeout: (callback: () => void, ms: number) => ioBroker.Timeout;
+  clearTimeout: (timeout: ioBroker.Timeout) => void;
+  setStateChangedAsync: (
+    id: string,
+    state: ioBroker.StateValue,
+    ack: boolean,
+  ) => Promise<unknown>;
+}
 
 class PollScheduler {
-  constructor(adapter, poll, intervalMs) {
+  private adapter: SchedulerAdapter;
+  private poll: () => Promise<void>;
+  private intervalMs: number;
+  private active = false;
+  private timer: ioBroker.Timeout | undefined;
+
+  constructor(
+    adapter: SchedulerAdapter,
+    poll: () => Promise<void>,
+    intervalMs: number,
+  ) {
     this.adapter = adapter;
     this.poll = poll;
     this.intervalMs = intervalMs;
-    this.active = false;
-    this.timer = undefined;
   }
 
-  start() {
+  start(): void {
     if (this.active) {
       return;
     }
@@ -20,7 +42,7 @@ class PollScheduler {
     void this.Run();
   }
 
-  stop() {
+  stop(): void {
     this.active = false;
 
     if (this.timer) {
@@ -29,7 +51,7 @@ class PollScheduler {
     }
   }
 
-  async Run() {
+  async Run(): Promise<void> {
     try {
       await this.poll();
     } catch (error) {
@@ -50,23 +72,33 @@ class PollScheduler {
 }
 
 class GoodWePollScheduler {
-  constructor(adapter, inverter, states, intervalMs) {
+  private adapter: SchedulerAdapter;
+  private inverter: GoodWeUdp;
+  private states: GoodWeStateManager;
+  private cycleCnt = 0;
+  private scheduler: PollScheduler;
+
+  constructor(
+    adapter: SchedulerAdapter,
+    inverter: GoodWeUdp,
+    states: GoodWeStateManager,
+    intervalMs: number,
+  ) {
     this.adapter = adapter;
     this.inverter = inverter;
     this.states = states;
-    this.cycleCnt = 0;
     this.scheduler = new PollScheduler(adapter, () => this.Poll(), intervalMs);
   }
 
-  start() {
+  start(): void {
     this.scheduler.start();
   }
 
-  stop() {
+  stop(): void {
     this.scheduler.stop();
   }
 
-  async Poll() {
+  async Poll(): Promise<void> {
     try {
       if (this.inverter.Status == false) {
         this.cycleCnt = 0;
@@ -109,7 +141,7 @@ class GoodWePollScheduler {
     }
   }
 
-  async UpdateDeviceInfo() {
+  async UpdateDeviceInfo(): Promise<void> {
     const success = await this.inverter.ReadGroup("deviceInfo");
 
     if (!success) {
@@ -121,7 +153,7 @@ class GoodWePollScheduler {
     await this.states.SetConnection(this.inverter.Status);
   }
 
-  async UpdateRunningData() {
+  async UpdateRunningData(): Promise<void> {
     const success = await this.inverter.ReadGroup("runningData");
 
     if (!success) {
@@ -138,7 +170,7 @@ class GoodWePollScheduler {
     );
   }
 
-  async UpdateExtComData() {
+  async UpdateExtComData(): Promise<void> {
     const success = await this.inverter.ReadGroup("extComData");
 
     if (!success) {
@@ -149,7 +181,7 @@ class GoodWePollScheduler {
     await this.states.UpdateStatesFromRegisterMap(registerGroups.extComData);
   }
 
-  async UpdateBmsInfo() {
+  async UpdateBmsInfo(): Promise<void> {
     const success = await this.inverter.ReadGroup("bmsInfo");
 
     if (!success) {
@@ -161,7 +193,7 @@ class GoodWePollScheduler {
     await this.states.UpdateDecodedBmsStatuses();
   }
 
-  async UpdateAdditionalRegisterGroups() {
+  async UpdateAdditionalRegisterGroups(): Promise<void> {
     for (const groupName of Object.keys(optionalGroupConfigs)) {
       if (!this.states.IsRegisterGroupEnabled(groupName)) {
         continue;
@@ -182,7 +214,5 @@ class GoodWePollScheduler {
   }
 }
 
-module.exports = {
-  GoodWePollScheduler,
-  PollScheduler,
-};
+export type { SchedulerAdapter };
+export { GoodWePollScheduler, PollScheduler };

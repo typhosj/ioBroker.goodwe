@@ -1,18 +1,23 @@
 "use strict";
 
-const assert = require("node:assert/strict");
-const EventEmitter = require("node:events");
-const proxyquire = require("proxyquire");
-const { PollScheduler } = require("./scheduler");
-const GoodWeStateManager = require("./states");
-const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
-const {
+import assert from "node:assert/strict";
+import EventEmitter from "node:events";
+import proxyquire from "proxyquire";
+import { PollScheduler } from "../src/scheduler";
+import GoodWeStateManager from "../src/states";
+import {
+  optionalGroupConfigs,
+  type RegisterGroup,
+  registerGroups,
+  TYPE,
+} from "../src/lib/register-map";
+import {
   bitfields,
   decodeBitfield,
   decodeValue,
   valueStates,
-} = require("./lib/status-definitions");
-const {
+} from "../src/lib/status-definitions";
+import {
   buildIdInfoRequest,
   clampDiscoveryConcurrency,
   extractIpv4Address,
@@ -21,11 +26,50 @@ const {
   isGoodWeIdInfoResponse,
   parseIdInfoResponse,
   validateIpv4Address,
-} = require("./lib/goodwe-discovery");
-const {
+} from "../src/lib/goodwe-discovery";
+import {
   getDecodedBmsStatuses,
   getDecodedRunningStatuses,
-} = require("./mappers/status-mapper");
+} from "../src/mappers/status-mapper";
+import type { GoodWeUdp } from "../src/GoodWe/GoodWe";
+import type * as GoodWeTypes from "../src/GoodWe/GoodWe";
+import type * as DiscoveryTypes from "../src/lib/goodwe-discovery";
+
+type StateAdapterLike = ConstructorParameters<typeof GoodWeStateManager>[0];
+type SchedulerAdapterLike = ConstructorParameters<typeof PollScheduler>[0];
+
+interface StateWrite {
+  id: string;
+  value: ioBroker.StateValue;
+  ack: boolean;
+}
+
+function noop(): void {}
+
+const testLogger = {
+  level: "debug",
+  silly: noop,
+  debug: noop,
+  info: noop,
+  warn: noop,
+  error: noop,
+} as unknown as ioBroker.Logger;
+
+const testConfig: ioBroker.AdapterConfig = {
+  ipAddr: "192.168.178.42",
+  discoverySubnet: "192.168.178.0/24",
+  pollCycle: 10,
+  timeoutMs: 5000,
+  retries: 3,
+  pollExtended: true,
+  pollSimccid: false,
+  pollExtendedMeter: false,
+  pollFlashInfo: false,
+  pollBmsExtended: false,
+  pollBmsDetail: false,
+  pollCeiAutoTest: false,
+  pollPowerLimit: false,
+};
 
 describe("register map", () => {
   it("keeps all entries inside their request block", () => {
@@ -71,7 +115,10 @@ describe("register map", () => {
 
   it("defines config switches for every optional group", () => {
     for (const groupName of Object.keys(optionalGroupConfigs)) {
-      assert.ok(registerGroups[groupName], `${groupName} has no register group`);
+      assert.ok(
+        registerGroups[groupName],
+        `${groupName} has no register group`,
+      );
       assert.match(optionalGroupConfigs[groupName], /^poll/);
     }
   });
@@ -119,8 +166,14 @@ describe("register map", () => {
 
     for (const group of Object.values(registerGroups)) {
       for (const item of group.entries) {
-        assert.ok(allowedRoles.has(item.role), `${item.state} role ${item.role}`);
-        assert.ok(allowedUnits.has(item.unit), `${item.state} unit ${item.unit}`);
+        assert.ok(
+          allowedRoles.has(item.role),
+          `${item.state} role ${item.role}`,
+        );
+        assert.ok(
+          allowedUnits.has(item.unit),
+          `${item.state} unit ${item.unit}`,
+        );
       }
     }
   });
@@ -177,17 +230,10 @@ describe("GoodWe discovery helpers", () => {
   });
 
   it("builds the GoodWe ID info request", () => {
-    assert.deepEqual([...buildIdInfoRequest()], [
-      0xaa,
-      0x55,
-      0xc0,
-      0x7f,
-      0x01,
-      0x02,
-      0x00,
-      0x02,
-      0x41,
-    ]);
+    assert.deepEqual(
+      [...buildIdInfoRequest()],
+      [0xaa, 0x55, 0xc0, 0x7f, 0x01, 0x02, 0x00, 0x02, 0x41],
+    );
   });
 
   it("parses GoodWe ID info responses", () => {
@@ -208,15 +254,15 @@ describe("GoodWe discovery helpers", () => {
   });
 
   it("logs socket close errors instead of swallowing them", async () => {
-    const messages = [];
-    const { probeGoodWeInverter } = proxyquire("./lib/goodwe-discovery", {
+    const messages: string[] = [];
+    const { probeGoodWeInverter } = proxyquire("../src/lib/goodwe-discovery", {
       dgram: {
         createSocket: () => new ClosingErrorSocket(),
       },
-    });
+    }) as typeof DiscoveryTypes;
 
     const result = await probeGoodWeInverter("192.168.178.42", {
-      log: { debug: (message) => messages.push(message) },
+      log: { debug: (message: string) => messages.push(message) },
       timeoutMs: 1,
     });
 
@@ -309,11 +355,20 @@ describe("GoodWe UDP parser", () => {
 
 describe("state mapping", () => {
   it("writes mapped register values through setStateChangedAsync", async () => {
-    const writes = [];
-    const adapter = {
-      config: {},
-      setStateChangedAsync: async (id, value, ack) => {
+    const writes: StateWrite[] = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      getObjectAsync: () => Promise.resolve(undefined),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: (
+        id: string,
+        value: ioBroker.StateValue,
+        ack: boolean,
+      ) => {
         writes.push({ id, value, ack });
+        return Promise.resolve(undefined);
       },
     };
     const inverter = {
@@ -321,14 +376,26 @@ describe("state mapping", () => {
         Pv1: { Voltage: 231.5 },
       },
     };
-    const manager = new GoodWeStateManager(adapter, inverter);
+    const manager = new GoodWeStateManager(
+      adapter,
+      inverter as unknown as GoodWeUdp,
+    );
 
     await manager.UpdateStatesFromRegisterMap({
       name: "RunningData",
+      start: 0,
+      count: 1,
+      channel: "RunningData",
       entries: [
         {
+          address: 0,
           state: "RunningData.PV1.Voltage",
           model: "Pv1.Voltage",
+          type: TYPE.U16,
+          registers: 1,
+          scale: 1,
+          role: "value",
+          byteOffset: 0,
         },
       ],
     });
@@ -403,22 +470,30 @@ describe("status mapping", () => {
 
 describe("poll scheduler", () => {
   it("owns poll timeout lifecycle", async () => {
-    let timeoutCallback = () => {};
-    let clearedTimer;
+    let timeoutCallback: () => void = noop;
+    let clearedTimer: ioBroker.Timeout | undefined;
     let pollCount = 0;
-    const adapter = {
-      log: { warn: () => {} },
-      setTimeout: (callback) => {
+    const timer = 1 as ioBroker.Timeout;
+    const adapter: SchedulerAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setStateChangedAsync: () => Promise.resolve(undefined),
+      setTimeout: (callback: () => void, _ms: number) => {
         timeoutCallback = callback;
-        return "timer";
+        return timer;
       },
-      clearTimeout: (timer) => {
-        clearedTimer = timer;
+      clearTimeout: (timeout: ioBroker.Timeout) => {
+        clearedTimer = timeout;
       },
     };
-    const scheduler = new PollScheduler(adapter, async () => {
-      pollCount++;
-    }, 1000);
+    const scheduler = new PollScheduler(
+      adapter,
+      () => {
+        pollCount++;
+        return Promise.resolve(undefined);
+      },
+      1000,
+    );
 
     scheduler.start();
     await Promise.resolve();
@@ -426,7 +501,7 @@ describe("poll scheduler", () => {
     assert.equal(typeof timeoutCallback, "function");
 
     scheduler.stop();
-    assert.equal(clearedTimer, "timer");
+    assert.equal(clearedTimer, timer);
 
     timeoutCallback();
     await Promise.resolve();
@@ -434,7 +509,7 @@ describe("poll scheduler", () => {
   });
 });
 
-function buildIdInfoResponse() {
+function buildIdInfoResponse(): Buffer {
   const response = Buffer.alloc(73);
 
   response[0] = 0xaa;
@@ -459,52 +534,71 @@ function buildIdInfoResponse() {
   return response;
 }
 
-function writeAscii(buffer, start, length, value) {
+function writeAscii(
+  buffer: Buffer,
+  start: number,
+  length: number,
+  value: string,
+): void {
   buffer.write(value.slice(0, length), start, length, "ascii");
 }
 
-function createInverter(socket) {
-  const { GoodWeUdp } = proxyquire("./GoodWe/GoodWe", {
+function createInverter(socket: FakeSocket): GoodWeUdp {
+  const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
     dgram: {
       createSocket: () => socket,
     },
-  });
+  }) as typeof GoodWeTypes;
 
-  return new GoodWeUdp({
-    debug: () => {},
-    warn: () => {},
-  });
+  return new GoodWeUdp(testLogger);
 }
 
 class FakeSocket extends EventEmitter {
-  constructor(responseFactory) {
+  private readonly responseFactory: () => Buffer;
+
+  constructor(responseFactory: () => Buffer) {
     super();
     this.responseFactory = responseFactory;
   }
 
-  send(_buffer, _offset, _length, _port, _ip, callback) {
+  send(
+    _buffer: Buffer,
+    _offset: number,
+    _length: number,
+    _port: number,
+    _ip: string,
+    callback: (error?: Error) => void,
+  ): void {
     callback(undefined);
     process.nextTick(() => this.emit("message", this.responseFactory()));
   }
 
-  close() {}
+  close(): void {}
 }
 
 class ClosingErrorSocket extends EventEmitter {
-  send(_request, _port, _ip, callback) {
+  send(
+    _request: Buffer,
+    _port: number,
+    _ip: string,
+    callback: (error?: Error) => void,
+  ): void {
     callback(undefined);
   }
 
-  once() {
+  once(): this {
     return this;
   }
 
-  close() {
+  close(): void {
     throw new Error("already closed");
   }
 }
 
-function buildRegisterResponse(group, writePayload) {
+function buildRegisterResponse(
+  group: RegisterGroup,
+  writePayload: (response: Buffer) => void,
+): Buffer {
   const response = Buffer.alloc(5 + group.count * 2 + 2);
 
   response[0] = 0xaa;
@@ -522,7 +616,11 @@ function buildRegisterResponse(group, writePayload) {
   return response;
 }
 
-function calculateCrc16(data, start, length) {
+function calculateCrc16(
+  data: Uint8Array,
+  start: number,
+  length: number,
+): number {
   let crc = 0xffff;
 
   for (let pos = start; pos < start + length; pos++) {

@@ -1,14 +1,43 @@
 "use strict";
 
-const {
+import {
   bitfields,
   decodeBitfield,
   decodeValue,
   valueStates,
-} = require("../lib/status-definitions");
+} from "../lib/status-definitions";
 
-function getDecodedRunningStatuses(data) {
-  const states = [
+interface RunningStatusData {
+  GridMode: number;
+  WorkMode: number;
+  OperationMode: number;
+  Battery1: { Mode: number };
+  Pv1: { Mode: number };
+  Pv2: { Mode: number };
+  Pv3: { Mode: number };
+  Pv4: { Mode: number };
+  BackUpL1: { Mode: number };
+  BackUpL2: { Mode: number };
+  BackUpL3: { Mode: number };
+  ErrorMessage: number;
+  DiagStatusL: number;
+}
+
+interface BmsStatusData {
+  ErrorCode?: number;
+  ErrorCodeH?: number;
+  WarningCodeL?: number;
+  WarningCodeH?: number;
+  DRMStatus?: number;
+}
+
+interface MappedState {
+  id: string;
+  value: string;
+}
+
+function getDecodedRunningStatuses(data: RunningStatusData): MappedState[] {
+  const states: MappedState[] = [
     {
       id: "RunningData.GridModeText",
       value: decodeValue(data.GridMode, valueStates.gridStatus),
@@ -27,14 +56,21 @@ function getDecodedRunningStatuses(data) {
     },
   ];
 
-  for (const pv of ["PV1", "PV2", "PV3", "PV4"]) {
+  const pvData = {
+    PV1: data.Pv1,
+    PV2: data.Pv2,
+    PV3: data.Pv3,
+    PV4: data.Pv4,
+  };
+
+  for (const pv of ["PV1", "PV2", "PV3", "PV4"] as const) {
     states.push({
       id: `RunningData.${pv}.ModeText`,
-      value: decodeValue(data[pv.replace("PV", "Pv")].Mode, valueStates.pvMode),
+      value: decodeValue(pvData[pv].Mode, valueStates.pvMode),
     });
   }
 
-  for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"]) {
+  for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"] as const) {
     states.push({
       id: `RunningData.${phase}.ModeText`,
       value: decodeValue(data[phase].Mode, valueStates.backupStatus),
@@ -59,7 +95,10 @@ function getDecodedRunningStatuses(data) {
   return states;
 }
 
-function getDecodedBmsStatuses(bms, includeExtended) {
+function getDecodedBmsStatuses(
+  bms: BmsStatusData,
+  includeExtended: boolean,
+): MappedState[] {
   const errorCode = (bms.ErrorCodeH ?? 0) * 0x10000 + (bms.ErrorCode ?? 0);
   const warningCode =
     (bms.WarningCodeH ?? 0) * 0x10000 + (bms.WarningCodeL ?? 0);
@@ -88,7 +127,5 @@ function getDecodedBmsStatuses(bms, includeExtended) {
   return states;
 }
 
-module.exports = {
-  getDecodedBmsStatuses,
-  getDecodedRunningStatuses,
-};
+export type { BmsStatusData, MappedState, RunningStatusData };
+export { getDecodedBmsStatuses, getDecodedRunningStatuses };

@@ -14,6 +14,11 @@
 
 Communication with GoodWe Inverter ET/EH/BH/BT Series
 
+## Requirements
+
+* Node.js 20 or newer
+* js-controller 6.0.0 or newer
+
 ## Supported data
 
 The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/BH/BT devices:
@@ -91,6 +96,12 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.1.0 (2026-06-24)
+* Migrated the adapter runtime to TypeScript
+* Raised the minimum Node.js version to 20
+* Switched the packaged adapter entry point to the compiled `build/main.js`
+* Updated CI to run on Node.js 20 and verify the npm package contents
+
 ### 1.0.9 (2026-06-23)
 * Added validation for usable IPv4 inverter addresses
 * Added GoodWe UDP reachability check from the admin configuration

@@ -1,18 +1,38 @@
 "use strict";
 
-const {
+import {
   discoverGoodWeInverters,
   extractIpv4Address,
   probeGoodWeInverter,
   validateIpv4Address,
-} = require("../lib/goodwe-discovery");
+} from "../lib/goodwe-discovery";
 
-async function handleAdapterMessage(adapter, obj) {
+interface AdapterMessage {
+  command?: string;
+  message?: Record<string, unknown>;
+  callback?: ioBroker.MessageCallback;
+  from: string;
+}
+
+interface MessageAdapter {
+  config: ioBroker.AdapterConfig;
+  sendTo: (
+    instanceName: string,
+    command: string,
+    message: Record<string, unknown>,
+    callback?: ioBroker.MessageCallback,
+  ) => void;
+}
+
+async function handleAdapterMessage(
+  adapter: MessageAdapter,
+  obj: AdapterMessage,
+): Promise<void> {
   if (!obj?.command) {
     return;
   }
 
-  const respond = (payload) => {
+  const respond = (payload: Record<string, unknown>): void => {
     if (obj.callback) {
       adapter.sendTo(obj.from, obj.command, payload, obj.callback);
     }
@@ -67,7 +87,7 @@ async function handleAdapterMessage(adapter, obj) {
   }
 }
 
-function getConfiguredIp(adapter, messageIp) {
+function getConfiguredIp(adapter: MessageAdapter, messageIp: unknown): string {
   const ipFromMessage = extractIpv4Address(messageIp);
 
   if (ipFromMessage !== "") {
@@ -77,7 +97,10 @@ function getConfiguredIp(adapter, messageIp) {
   return extractIpv4Address(adapter.config.ipAddr);
 }
 
-function getConfiguredSubnet(adapter, messageSubnet) {
+function getConfiguredSubnet(
+  adapter: MessageAdapter,
+  messageSubnet: unknown,
+): string | undefined {
   if (typeof messageSubnet === "string" && messageSubnet.trim() !== "") {
     return messageSubnet.trim();
   }
@@ -92,6 +115,5 @@ function getConfiguredSubnet(adapter, messageSubnet) {
   return undefined;
 }
 
-module.exports = {
-  handleAdapterMessage,
-};
+export type { AdapterMessage, MessageAdapter };
+export { handleAdapterMessage };
