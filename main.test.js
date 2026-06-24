@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const EventEmitter = require("node:events");
 const proxyquire = require("proxyquire");
 const { PollScheduler } = require("./scheduler");
+const GoodWeStateManager = require("./states");
 const { optionalGroupConfigs, registerGroups } = require("./lib/register-map");
 const {
   bitfields,
@@ -21,6 +22,10 @@ const {
   parseIdInfoResponse,
   validateIpv4Address,
 } = require("./lib/goodwe-discovery");
+const {
+  getDecodedBmsStatuses,
+  getDecodedRunningStatuses,
+} = require("./mappers/status-mapper");
 
 describe("register map", () => {
   it("keeps all entries inside their request block", () => {
@@ -202,6 +207,23 @@ describe("GoodWe discovery helpers", () => {
     assert.equal(isGoodWeIdInfoResponse(response), false);
   });
 
+  it("logs socket close errors instead of swallowing them", async () => {
+    const messages = [];
+    const { probeGoodWeInverter } = proxyquire("./lib/goodwe-discovery", {
+      dgram: {
+        createSocket: () => new ClosingErrorSocket(),
+      },
+    });
+
+    const result = await probeGoodWeInverter("192.168.178.42", {
+      log: { debug: (message) => messages.push(message) },
+      timeoutMs: 1,
+    });
+
+    assert.equal(result.reachable, false);
+    assert.match(messages[0], /UDP discovery socket close failed/);
+  });
+
   it("formats discovered inverters as admin select options", () => {
     assert.deepEqual(
       formatInverterOption({
@@ -264,6 +286,118 @@ describe("GoodWe UDP parser", () => {
 
     assert.equal(await inverter.ReadGroup("runningData"), true);
     assert.equal(inverter.RunningData.DerateFrozenPower, -12345);
+  });
+
+  it("decodes byte offsets, signed values, and scaled values", async () => {
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(registerGroups.runningData, (response) => {
+        response[5 + (35119 - 35100) * 2] = 4;
+        response[5 + (35119 - 35100) * 2 + 3] = 1;
+        response.writeInt16BE(-230, 5 + (35140 - 35100) * 2);
+        response.writeUInt16BE(2315, 5 + (35121 - 35100) * 2);
+      });
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(inverter.RunningData.Pv4.Mode, 4);
+    assert.equal(inverter.RunningData.Pv1.Mode, 1);
+    assert.equal(inverter.RunningData.AcActivePower, -230);
+    assert.equal(inverter.RunningData.GridL1.Voltage, 231.5);
+  });
+});
+
+describe("state mapping", () => {
+  it("writes mapped register values through setStateChangedAsync", async () => {
+    const writes = [];
+    const adapter = {
+      config: {},
+      setStateChangedAsync: async (id, value, ack) => {
+        writes.push({ id, value, ack });
+      },
+    };
+    const inverter = {
+      RunningData: {
+        Pv1: { Voltage: 231.5 },
+      },
+    };
+    const manager = new GoodWeStateManager(adapter, inverter);
+
+    await manager.UpdateStatesFromRegisterMap({
+      name: "RunningData",
+      entries: [
+        {
+          state: "RunningData.PV1.Voltage",
+          model: "Pv1.Voltage",
+        },
+      ],
+    });
+
+    assert.deepEqual(writes, [
+      { id: "RunningData.PV1.Voltage", value: 231.5, ack: true },
+    ]);
+  });
+});
+
+describe("status mapping", () => {
+  it("maps decoded running and BMS states", () => {
+    const runningStates = getDecodedRunningStatuses({
+      GridMode: 1,
+      WorkMode: 2,
+      OperationMode: 16,
+      Battery1: { Mode: 3 },
+      Pv1: { Mode: 1 },
+      Pv2: { Mode: 2 },
+      Pv3: { Mode: 0 },
+      Pv4: { Mode: 99 },
+      BackUpL1: { Mode: 0 },
+      BackUpL2: { Mode: 1 },
+      BackUpL3: { Mode: 0 },
+      ErrorMessage: 0b11,
+      DiagStatusL: 0b101,
+    });
+    const bmsStates = getDecodedBmsStatuses(
+      {
+        ErrorCode: 0b11,
+        ErrorCodeH: 0,
+        WarningCodeL: 0b11,
+        WarningCodeH: 0,
+        DRMStatus: 0b1000000000000001,
+      },
+      true,
+    );
+
+    assert.deepEqual(
+      runningStates.find((state) => state.id === "RunningData.GridModeText"),
+      { id: "RunningData.GridModeText", value: "OK" },
+    );
+    assert.deepEqual(
+      runningStates.find((state) => state.id === "RunningData.PV4.ModeText"),
+      { id: "RunningData.PV4.ModeText", value: "Unknown (99)" },
+    );
+    assert.deepEqual(
+      runningStates.find(
+        (state) => state.id === "RunningData.ErrorMessageActive",
+      ),
+      {
+        id: "RunningData.ErrorMessageActive",
+        value: "GFCI Device Check Failure, AC HCT Check Failure",
+      },
+    );
+    assert.deepEqual(
+      bmsStates.find((state) => state.id === "BMSInfo.WarningCodeActive"),
+      {
+        id: "BMSInfo.WarningCodeActive",
+        value: "Charging over-voltage1, Discharge under-voltage1",
+      },
+    );
+    assert.deepEqual(
+      bmsStates.find((state) => state.id === "BMSInfo.DRMStatusActive"),
+      {
+        id: "BMSInfo.DRMStatusActive",
+        value: "DRM0, DRED Connected",
+      },
+    );
   });
 });
 
@@ -354,6 +488,20 @@ class FakeSocket extends EventEmitter {
   }
 
   close() {}
+}
+
+class ClosingErrorSocket extends EventEmitter {
+  send(_request, _port, _ip, callback) {
+    callback(undefined);
+  }
+
+  once() {
+    return this;
+  }
+
+  close() {
+    throw new Error("already closed");
+  }
 }
 
 function buildRegisterResponse(group, writePayload) {
