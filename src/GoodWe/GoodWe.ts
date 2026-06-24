@@ -1,7 +1,30 @@
-const dgram = require("dgram");
-const { registerGroups, TYPE } = require("../lib/register-map");
+import dgram from "dgram";
+import {
+  registerGroups,
+  type RegisterEntry,
+  type RegisterGroup,
+  TYPE,
+} from "../lib/register-map";
 
-class GoodWePacket {
+interface GoodWeConnectOptions {
+  timeoutMs?: number;
+  retries?: number;
+}
+
+interface ReadGroupOptions {
+  optional?: boolean;
+}
+
+interface PendingRequest {
+  matcher: (data: Buffer) => boolean;
+  resolve: (data: Buffer) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout | null;
+}
+
+type ModelValue = string | number | Date | Uint8Array | Record<string, unknown>;
+
+export class GoodWePacket {
   static Format = { Packet: 7, Checksum: 2 };
   static Header = { High: 0xaa, Low: 0x55 };
   static Addr = { AP: 0xc0, Inverter: 0x7f };
@@ -24,7 +47,7 @@ class GoodWePacket {
   };
 }
 
-class GoodWeRegister {
+export class GoodWeRegister {
   static Format = { Frame: 5, CRC16: 2 };
   static RecvHeader = { High: 0xaa, Low: 0x55 };
   static Addr = { Inverter: 0xf7 };
@@ -35,7 +58,7 @@ class GoodWeRegister {
   };
 }
 
-class GoodWeIdInfo {
+export class GoodWeIdInfo {
   FirmwareVersion = "";
   ModelName = "";
   Na = new Uint8Array(16);
@@ -45,7 +68,7 @@ class GoodWeIdInfo {
   SafetyCountryCode = 0x00;
 }
 
-class GoodWeDeviceInfo {
+export class GoodWeDeviceInfo {
   ModbusProtocolVersion = 0;
   RatedPower = 0;
   AcOutputType = 0;
@@ -141,12 +164,12 @@ class GoodWeRunningData {
   TotalPowerPv = 0;
 }
 
-class GoodWeMeterPhase {
+export class GoodWeMeterPhase {
   ActivePower = 0;
   PowerFactor = 0.0;
 }
 
-class GoodWeExternalComData {
+export class GoodWeExternalComData {
   Commode = 0;
   Rssi = 0;
   ManufacturerCode = 0;
@@ -163,7 +186,7 @@ class GoodWeExternalComData {
   EnergyTotalBuy = 0.0;
 }
 
-class GoodweBmSInfo {
+export class GoodweBmSInfo {
   DRMStatus = 0;
   BattTypeIndex = 0;
   Status = 0;
@@ -190,7 +213,7 @@ class GoodweBmSInfo {
   MinimumCellVoltage = 0;
 }
 
-class GoodWeUdp {
+export class GoodWeUdp {
   static ConStatus = { Offline: false, Online: true };
   static DefaultTimeoutMs = 5000;
   static DefaultRetries = 1;
@@ -199,7 +222,7 @@ class GoodWeUdp {
   #ipAddr = "";
   #port = 0;
   #client = dgram.createSocket("udp4");
-  #pendingRequests = [];
+  #pendingRequests: PendingRequest[] = [];
   #optionalGroupBackoffUntil = new Map();
   #timeoutMs = GoodWeUdp.DefaultTimeoutMs;
   #retries = GoodWeUdp.DefaultRetries;
@@ -208,15 +231,16 @@ class GoodWeUdp {
   #runningData = new GoodWeRunningData();
   #extComData = new GoodWeExternalComData();
   #bmsInfo = new GoodweBmSInfo();
-  #flashInfo = {};
-  #bmsDetail = {};
-  #ceiAutoTest = {};
-  #powerLimit = {};
+  #flashInfo: Record<string, unknown> = {};
+  #bmsDetail: Record<string, unknown> = {};
+  #ceiAutoTest: Record<string, unknown> = {};
+  #powerLimit: Record<string, unknown> = {};
+  log: ioBroker.Logger;
 
   /**
-   * @param {ioBroker.Logger} log
+   * @param log
    */
-  constructor(log) {
+  constructor(log: ioBroker.Logger) {
     this.log = log;
     this.#client.on("message", (rcvbuf) => this.#handleMessage(rcvbuf));
     this.#client.on("error", (error) => {
@@ -228,7 +252,7 @@ class GoodWeUdp {
     // this.#client.setMaxListeners(0);
   }
 
-  destructor() {
+  destructor(): void {
     for (const request of this.#pendingRequests.splice(0)) {
       this.#clearPendingRequest(request);
       request.reject(new Error("Socket closed"));
@@ -236,7 +260,11 @@ class GoodWeUdp {
     this.#client.close();
   }
 
-  Connect(IpAddr, Port, options = {}) {
+  Connect(
+    IpAddr: string,
+    Port: number,
+    options: GoodWeConnectOptions = {},
+  ): Promise<boolean> {
     this.#ipAddr = IpAddr;
     this.#port = Port;
     this.#timeoutMs = options.timeoutMs ?? GoodWeUdp.DefaultTimeoutMs;
@@ -245,7 +273,7 @@ class GoodWeUdp {
     return this.ReadIdInfo();
   }
 
-  #handleMessage(rcvbuf) {
+  #handleMessage(rcvbuf: Buffer): void {
     const requestIndex = this.#pendingRequests.findIndex((request) =>
       request.matcher(rcvbuf),
     );
@@ -260,14 +288,14 @@ class GoodWeUdp {
     request.resolve(rcvbuf);
   }
 
-  #clearPendingRequest(request) {
+  #clearPendingRequest(request: PendingRequest): void {
     if (request.timeout) {
       clearTimeout(request.timeout);
       request.timeout = null;
     }
   }
 
-  #send(sendbuf) {
+  #send(sendbuf: Uint8Array): Promise<void> {
     return new Promise((resolve, reject) => {
       this.#client.send(
         sendbuf,
@@ -287,13 +315,22 @@ class GoodWeUdp {
     });
   }
 
-  async #request(sendbuf, matcher, name) {
+  async #request(
+    sendbuf: Uint8Array,
+    matcher: (data: Buffer) => boolean,
+    name: string,
+  ): Promise<Buffer> {
     let lastError;
 
     for (let attempt = 0; attempt <= this.#retries; attempt++) {
       try {
-        const response = await new Promise((resolve, reject) => {
-          let request;
+        const response = await new Promise<Buffer>((resolve, reject) => {
+          const request: PendingRequest = {
+            matcher,
+            resolve,
+            reject,
+            timeout: null,
+          };
           const timeout = setTimeout(() => {
             const requestIndex = this.#pendingRequests.indexOf(request);
             if (requestIndex !== -1) {
@@ -302,22 +339,23 @@ class GoodWeUdp {
             reject(new Error(`${name} timed out after ${this.#timeoutMs} ms`));
           }, this.#timeoutMs);
 
-          request = {
-            matcher,
-            resolve,
-            reject,
-            timeout,
-          };
+          request.timeout = timeout;
 
           this.#pendingRequests.push(request);
 
-          this.#send(sendbuf).catch((error) => {
+          this.#send(sendbuf).catch((error: unknown) => {
             const requestIndex = this.#pendingRequests.indexOf(request);
             if (requestIndex !== -1) {
               this.#pendingRequests.splice(requestIndex, 1);
             }
             this.#clearPendingRequest(request);
-            reject(error);
+            reject(
+              error instanceof Error
+                ? error
+                : new Error(
+                    typeof error === "string" ? error : "UDP send failed",
+                  ),
+            );
           });
         });
 
@@ -336,7 +374,7 @@ class GoodWeUdp {
     throw lastError;
   }
 
-  #buildReadRegisterRequest(start, count) {
+  #buildReadRegisterRequest(start: number, count: number): Uint8Array {
     const sendbuf = new Uint8Array(8);
 
     sendbuf[0] = GoodWeRegister.Addr.Inverter;
@@ -353,7 +391,10 @@ class GoodWeUdp {
     return sendbuf;
   }
 
-  async #readRegisterGroup(group, target) {
+  async #readRegisterGroup(
+    group: RegisterGroup,
+    target: object,
+  ): Promise<Buffer> {
     const sendbuf = this.#buildReadRegisterRequest(group.start, group.count);
     const rcvbuf = await this.#request(
       sendbuf,
@@ -372,7 +413,11 @@ class GoodWeUdp {
     return rcvbuf;
   }
 
-  #parseRegisterValue(data, start, item) {
+  #parseRegisterValue(
+    data: Uint8Array,
+    start: number,
+    item: RegisterEntry,
+  ): string | number {
     const offset = 5 + (item.address - start) * 2;
     let value;
 
@@ -407,26 +452,31 @@ class GoodWeUdp {
     return value;
   }
 
-  #setModelValue(target, path, value) {
+  #setModelValue(target: object, path: string, value: ModelValue): void {
     const parts = path.split(".");
     const key = parts.pop();
-    let current = target;
+    let current: Record<string, unknown> = target as Record<string, unknown>;
 
     for (const part of parts) {
       if (current[part] === undefined) {
         current[part] = {};
       }
-      current = current[part];
+      current = current[part] as Record<string, unknown>;
     }
 
-    current[key] = value;
+    if (key) {
+      current[key] = value;
+    }
   }
 
-  async ReadGroup(groupName, options = {}) {
+  async ReadGroup(
+    groupName: string,
+    options: ReadGroupOptions = {},
+  ): Promise<boolean> {
     const group = registerGroups[groupName];
     const isOptional = options.optional === true;
     const backoffUntil = this.#optionalGroupBackoffUntil.get(groupName) ?? 0;
-    const targets = {
+    const targets: Record<string, object> = {
       deviceInfo: this.#deviceInfo,
       runningData: this.#runningData,
       extComData: this.#extComData,
@@ -480,8 +530,8 @@ class GoodWeUdp {
     }
   }
 
-  async ReadIdInfo() {
-    let sendbuf = new Uint8Array(9);
+  async ReadIdInfo(): Promise<boolean> {
+    const sendbuf = new Uint8Array(9);
     let i;
     let crc = 0;
 
@@ -525,28 +575,27 @@ class GoodWeUdp {
     }
   }
 
-  async ReadDeviceInfo() {
+  async ReadDeviceInfo(): Promise<boolean> {
     return this.ReadGroup("deviceInfo");
   }
 
-  async ReadRunningData() {
+  async ReadRunningData(): Promise<boolean> {
     return this.ReadGroup("runningData");
   }
 
-  async ReadExtComData() {
+  async ReadExtComData(): Promise<boolean> {
     return this.ReadGroup("extComData");
   }
 
-  async ReadBmsInfo() {
+  async ReadBmsInfo(): Promise<boolean> {
     return this.ReadGroup("bmsInfo");
   }
 
-  #CheckRecPacket(Data, CtrCode, FctCode) {
+  #CheckRecPacket(Data: Uint8Array, CtrCode: number, FctCode: number): boolean {
     let packetFormat = new Uint8Array(GoodWePacket.Format.Packet);
     let packetCrc = new Uint8Array(GoodWePacket.Format.Checksum);
     let i;
     let crc = 0;
-    let low, high;
 
     packetFormat = Data.slice(0, GoodWePacket.Format.Packet);
     packetCrc = Data.slice(
@@ -558,8 +607,8 @@ class GoodWeUdp {
       crc = crc + Data[i];
     }
 
-    high = crc >> 8;
-    low = crc & 0x00ff;
+    const high = crc >> 8;
+    const low = crc & 0x00ff;
 
     if (packetCrc[0] == high && packetCrc[1] == low) {
       if (
@@ -581,7 +630,11 @@ class GoodWeUdp {
     return false;
   }
 
-  #CheckRecRegisterData(Data, FctCode, Length) {
+  #CheckRecRegisterData(
+    Data: Uint8Array,
+    FctCode: number,
+    Length: number,
+  ): boolean {
     let registerFrame = new Uint8Array(GoodWeRegister.Format.Frame);
     let registerCrc = new Uint8Array(GoodWeRegister.Format.CRC16);
     let crc = 0;
@@ -616,17 +669,22 @@ class GoodWeUdp {
     return false;
   }
 
-  #GetStringFromByteArray(Data, Start, Length) {
-    let buf = new Uint8Array(Length);
-    let value;
-
-    buf = Data.slice(Start, Start + Length);
-    value = buf.toString();
-
-    return value;
+  #GetStringFromByteArray(
+    Data: Uint8Array,
+    Start: number,
+    Length: number,
+  ): string {
+    return Buffer.from(Data.slice(Start, Start + Length))
+      .toString("ascii")
+      .replace(/\0/g, "")
+      .trim();
   }
 
-  #GetUintFromByteArray(Data, Start, Length) {
+  #GetUintFromByteArray(
+    Data: Uint8Array,
+    Start: number,
+    Length: number,
+  ): number {
     let buf = new Uint8Array(Length);
     let i;
     let value = 0;
@@ -642,48 +700,37 @@ class GoodWeUdp {
     return value;
   }
 
-  #GetIntFromByteArray(Data, Start, Length) {
-    let buf = new Uint8Array(Length);
-    let i;
-    let value = 0;
-
-    buf = Data.slice(Start, Start + Length);
-    //buf.reverse();
-
-    for (i = 0; i < Length; i++) {
-      value = value << 8;
-      value = value + buf[i];
-    }
-
-    if ((value & 0x8000) == 0x8000) {
-      value = value ^ 0xffff;
-      value = value + 1;
-      value = value * -1;
-    }
-
-    return value;
+  #GetIntFromByteArray(
+    Data: Uint8Array,
+    Start: number,
+    Length: number,
+  ): number {
+    return Buffer.from(Data.slice(Start, Start + Length)).readIntBE(0, Length);
   }
 
-  #GetFloatFromByteArray(Data, Start, Length) {
+  #GetFloatFromByteArray(
+    Data: Uint8Array,
+    Start: number,
+    Length: number,
+  ): number {
     let buf = new Uint8Array(Length);
 
     buf = Data.slice(Start, Start + Length);
 
-    var bits = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+    const bits = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
     //var bits = 0b10111101111110111110011101101101; // = -0,123;
-    var sign = bits >>> 31 === 0 ? 1.0 : -1.0;
-    var e = (bits >>> 23) & 0xff;
-    var m = e === 0 ? (bits & 0x7fffff) << 1 : (bits & 0x7fffff) | 0x800000;
-    var f = sign * m * Math.pow(2, e - 150);
+    const sign = bits >>> 31 === 0 ? 1.0 : -1.0;
+    const e = (bits >>> 23) & 0xff;
+    const m = e === 0 ? (bits & 0x7fffff) << 1 : (bits & 0x7fffff) | 0x800000;
+    const f = sign * m * Math.pow(2, e - 150);
 
     return f;
   }
 
-  #CalculatetCrc16(Data, Start, Length) {
+  #CalculatetCrc16(Data: Uint8Array, Start: number, Length: number): number {
     let pos;
     let i;
     let crc = 0xffff;
-    let ret;
 
     for (pos = Start; pos < Start + Length; pos++) {
       crc ^= Data[pos];
@@ -698,59 +745,48 @@ class GoodWeUdp {
       }
     }
 
-    ret = ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
+    const ret = ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
 
     return ret;
   }
 
-  get Status() {
+  get Status(): boolean {
     return this.#status;
   }
 
-  get IdInfo() {
+  get IdInfo(): GoodWeIdInfo {
     return this.#idInfo;
   }
 
-  get DeviceInfo() {
+  get DeviceInfo(): GoodWeDeviceInfo {
     return this.#deviceInfo;
   }
 
-  get RunningData() {
+  get RunningData(): GoodWeRunningData {
     return this.#runningData;
   }
 
-  get ExtComData() {
+  get ExtComData(): GoodWeExternalComData {
     return this.#extComData;
   }
 
-  get BmsInfo() {
+  get BmsInfo(): GoodweBmSInfo {
     return this.#bmsInfo;
   }
 
-  get FlashInfo() {
+  get FlashInfo(): Record<string, unknown> {
     return this.#flashInfo;
   }
 
-  get BmsDetail() {
+  get BmsDetail(): Record<string, unknown> {
     return this.#bmsDetail;
   }
 
-  get CeiAutoTest() {
+  get CeiAutoTest(): Record<string, unknown> {
     return this.#ceiAutoTest;
   }
 
-  get PowerLimit() {
+  get PowerLimit(): Record<string, unknown> {
     return this.#powerLimit;
   }
 }
-
-module.exports = {
-  GoodWePacket,
-  GoodWeRegister,
-  GoodWeIdInfo,
-  GoodWeDeviceInfo,
-  GoodWeMeterPhase,
-  GoodWeExternalComData,
-  GoodweBmSInfo,
-  GoodWeUdp,
-};

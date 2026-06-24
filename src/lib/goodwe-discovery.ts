@@ -1,13 +1,53 @@
 "use strict";
 
-const dgram = require("dgram");
-const os = require("os");
+import dgram from "dgram";
+import os from "os";
 
 const GOODWE_PORT = 8899;
 const DEFAULT_PROBE_TIMEOUT_MS = 700;
 const DEFAULT_DISCOVERY_CONCURRENCY = 32;
 
-function validateIpv4Address(ip) {
+interface LoggerLike {
+  debug?: (message: string) => void;
+}
+
+interface IpValidation {
+  valid: boolean;
+  reason?: string;
+  ip?: string;
+  octets?: number[];
+}
+
+interface IdInfo {
+  firmwareVersion: string;
+  modelName: string;
+  serialNumber: string;
+  nominalPvVoltage: number;
+  internalVersion: string;
+  safetyCountryCode: number;
+}
+
+interface ProbeResult {
+  ip: string;
+  reachable: boolean;
+  idInfo?: Partial<IdInfo>;
+  error?: string;
+}
+
+interface ProbeOptions {
+  port?: number;
+  timeoutMs?: number;
+  log?: LoggerLike;
+}
+
+interface DiscoveryOptions {
+  ip?: string;
+  subnet?: string;
+  timeoutMs?: number;
+  concurrency?: number;
+}
+
+function validateIpv4Address(ip: unknown): IpValidation {
   if (typeof ip !== "string") {
     return { valid: false, reason: "IP address must be a string" };
   }
@@ -68,7 +108,7 @@ function validateIpv4Address(ip) {
   return { valid: true, ip: value, octets };
 }
 
-function extractIpv4Address(value) {
+function extractIpv4Address(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -84,7 +124,7 @@ function extractIpv4Address(value) {
   return "";
 }
 
-function buildIdInfoRequest() {
+function buildIdInfoRequest(): Buffer {
   const data = Buffer.from([
     0xaa, 0x55, 0xc0, 0x7f, 0x01, 0x02, 0x00, 0x00, 0x00,
   ]);
@@ -96,7 +136,7 @@ function buildIdInfoRequest() {
   return data;
 }
 
-function checksum16(data, start, length) {
+function checksum16(data: Uint8Array, start: number, length: number): number {
   let checksum = 0;
 
   for (let index = start; index < start + length; index++) {
@@ -106,7 +146,7 @@ function checksum16(data, start, length) {
   return checksum & 0xffff;
 }
 
-function isGoodWeIdInfoResponse(data) {
+function isGoodWeIdInfoResponse(data: unknown): data is Uint8Array {
   if (!Buffer.isBuffer(data) && !(data instanceof Uint8Array)) {
     return false;
   }
@@ -129,7 +169,7 @@ function isGoodWeIdInfoResponse(data) {
   );
 }
 
-function parseIdInfoResponse(data) {
+function parseIdInfoResponse(data: Uint8Array): IdInfo {
   if (!isGoodWeIdInfoResponse(data)) {
     throw new Error("Invalid GoodWe ID response");
   }
@@ -144,14 +184,14 @@ function parseIdInfoResponse(data) {
   };
 }
 
-function readAscii(data, start, length) {
+function readAscii(data: Uint8Array, start: number, length: number): string {
   return Buffer.from(data.slice(start, start + length))
     .toString("ascii")
     .replace(/\0/g, "")
     .trim();
 }
 
-function readUInt(data, start, length) {
+function readUInt(data: Uint8Array, start: number, length: number): number {
   let value = 0;
 
   for (let index = start; index < start + length; index++) {
@@ -161,7 +201,10 @@ function readUInt(data, start, length) {
   return value;
 }
 
-function probeGoodWeInverter(ip, options = {}) {
+function probeGoodWeInverter(
+  ip: string,
+  options: ProbeOptions = {},
+): Promise<ProbeResult> {
   const validation = validateIpv4Address(ip);
 
   if (!validation.valid) {
@@ -179,22 +222,6 @@ function probeGoodWeInverter(ip, options = {}) {
   return new Promise((resolve) => {
     const client = dgram.createSocket("udp4");
     let done = false;
-
-    const finish = (result) => {
-      if (done) {
-        return;
-      }
-
-      done = true;
-      clearTimeout(timeout);
-      try {
-        client.close();
-      } catch {
-        // The socket can already be closed after early send errors.
-      }
-      resolve(result);
-    };
-
     const timeout = setTimeout(() => {
       finish({
         ip: validation.ip,
@@ -203,7 +230,24 @@ function probeGoodWeInverter(ip, options = {}) {
       });
     }, timeoutMs);
 
-    client.once("message", (response) => {
+    function finish(result: ProbeResult): void {
+      if (done) {
+        return;
+      }
+
+      done = true;
+      clearTimeout(timeout);
+      try {
+        client.close();
+      } catch (error) {
+        options.log?.debug?.(
+          `UDP discovery socket close failed: ${error.message}`,
+        );
+      }
+      resolve(result);
+    }
+
+    client.once("message", (response: Buffer) => {
       if (!isGoodWeIdInfoResponse(response)) {
         finish({
           ip: validation.ip,
@@ -220,7 +264,7 @@ function probeGoodWeInverter(ip, options = {}) {
       });
     });
 
-    client.once("error", (error) => {
+    client.once("error", (error: Error) => {
       finish({
         ip: validation.ip,
         reachable: false,
@@ -228,7 +272,7 @@ function probeGoodWeInverter(ip, options = {}) {
       });
     });
 
-    client.send(request, port, validation.ip, (error) => {
+    client.send(request, port, validation.ip, (error?: Error) => {
       if (error) {
         finish({
           ip: validation.ip,
@@ -240,7 +284,9 @@ function probeGoodWeInverter(ip, options = {}) {
   });
 }
 
-async function discoverGoodWeInverters(options = {}) {
+async function discoverGoodWeInverters(
+  options: DiscoveryOptions = {},
+): Promise<{ searched: number; found: ProbeResult[] }> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
   const concurrency = clampDiscoveryConcurrency(options.concurrency);
   const candidates = getDiscoveryCandidates(options);
@@ -265,14 +311,17 @@ async function discoverGoodWeInverters(options = {}) {
   };
 }
 
-function clampDiscoveryConcurrency(value) {
+function clampDiscoveryConcurrency(value: unknown): number {
   const concurrency = Number(value) || DEFAULT_DISCOVERY_CONCURRENCY;
 
   return Math.min(254, Math.max(1, Math.floor(concurrency)));
 }
 
-function formatInverterOption(result) {
-  const idInfo = result.idInfo ?? {};
+function formatInverterOption(result: ProbeResult): {
+  value: string;
+  label: string;
+} {
+  const idInfo: Partial<IdInfo> = result.idInfo ?? {};
   const firmwareVersion = isPlausibleVersionText(idInfo.firmwareVersion)
     ? idInfo.firmwareVersion
     : undefined;
@@ -290,16 +339,16 @@ function formatInverterOption(result) {
   };
 }
 
-function isPlausibleVersionText(value) {
+function isPlausibleVersionText(value: unknown): boolean {
   return typeof value === "string" && /^[A-Za-z0-9._-]{2,20}$/.test(value);
 }
 
-function getDiscoveryCandidates(options = {}) {
+function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
   if (options.subnet) {
     return getIpv4CandidatesFromSubnet(options.subnet);
   }
 
-  const subnets = new Set();
+  const subnets = new Set<string>();
   const validation = validateIpv4Address(options.ip);
 
   if (validation.valid) {
@@ -321,11 +370,11 @@ function getDiscoveryCandidates(options = {}) {
   );
 }
 
-function getSubnetFromOctets(octets) {
+function getSubnetFromOctets(octets: number[]): string {
   return `${octets.slice(0, 3).join(".")}.0/24`;
 }
 
-function getIpv4CandidatesFromSubnet(subnet) {
+function getIpv4CandidatesFromSubnet(subnet: string): string[] {
   const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.0\/24$/.exec(subnet);
 
   if (!match) {
@@ -342,7 +391,14 @@ function getIpv4CandidatesFromSubnet(subnet) {
   return Array.from({ length: 254 }, (_, index) => `${prefix}.${index + 1}`);
 }
 
-module.exports = {
+export type {
+  DiscoveryOptions,
+  IdInfo,
+  IpValidation,
+  ProbeOptions,
+  ProbeResult,
+};
+export {
   GOODWE_PORT,
   buildIdInfoRequest,
   clampDiscoveryConcurrency,

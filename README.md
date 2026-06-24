@@ -14,6 +14,13 @@
 
 Communication with GoodWe Inverter ET/EH/BH/BT Series
 
+Manufacturer: [GoodWe](https://www.goodwe.com/)
+
+## Requirements
+
+* Node.js 20 or newer
+* js-controller 6.0.0 or newer
+
 ## Supported data
 
 The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/BH/BT devices:
@@ -38,7 +45,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 | `RunningData.BackUpL1.*` ... `RunningData.BackUpL3.*` | Back-up output voltage, current, frequency, power and mode |
 | `RunningData.Battery1.*` | Battery voltage, current, power and mode |
 | `RunningData.*Energy*` | Daily and total energy counters |
-| `RunningData.*Text` | Decoded inverter, grid, PV, battery and back-up mode states |
+| `RunningData.*Mode`, `RunningData.GridMode`, `RunningData.WorkMode`, `RunningData.OperationMode` | Numeric mode states with ioBroker enum labels |
 | `RunningData.ErrorMessageActive` | Active inverter error bits as text |
 | `RunningData.DiagStatusActive` | Active diagnostic bits as text |
 | `ExtComData.*` | Smart meter and communication data |
@@ -66,11 +73,10 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
 
 The basic settings page also provides discovery helpers:
-The basic settings page also provides discovery helpers:
 
 * `Inverter IP`: Stores only the inverter IPv4 address.
 * `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
-* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter. Copy only the IP address into `Inverter IP`.
+* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter.
 
 ## Troubleshooting
 
@@ -92,6 +98,13 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### 1.1.0 (2026-06-24)
+* Migrated the adapter runtime to TypeScript
+* Raised the minimum Node.js version to 20
+* Switched the packaged adapter entry point to the compiled `build/main.js`
+* Updated CI to run on Node.js 20 and verify the npm package contents
+* Replaced additional mode `*Text` states with enum labels on the numeric mode states
+
 ### 1.0.9 (2026-06-23)
 * Added validation for usable IPv4 inverter addresses
 * Added GoodWe UDP reachability check from the admin configuration

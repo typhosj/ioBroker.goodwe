@@ -8,10 +8,21 @@ export default [
     // specify files to exclude from linting here
     ignores: [
       ".vscode/",
+      "build/",
+      "build-test/",
       "**/*.test.js",
       "test/**/*.js",
       "**/adapter-config.d.ts",
     ],
+  },
+  {
+    files: ["test/**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: "./tsconfig.test.json",
+      },
+    },
   },
   {
     rules: {

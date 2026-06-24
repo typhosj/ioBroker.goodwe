@@ -1,6 +1,8 @@
 "use strict";
 
-const valueStates = {
+type ValueStateMap = Record<number, string>;
+
+const valueStates: Record<string, ValueStateMap> = {
   pvMode: {
     0: "No PV",
     1: "Standby",
@@ -39,7 +41,7 @@ const valueStates = {
   },
 };
 
-const bitfields = {
+const bitfields: Record<string, string[]> = {
   errorMessage: [
     "GFCI Device Check Failure",
     "AC HCT Check Failure",
@@ -158,17 +160,13 @@ const bitfields = {
   ],
 };
 
-function decodeValue(value, states) {
+function decodeValue(value: number, states: ValueStateMap): string {
   return states[value] ?? `Unknown (${value})`;
 }
 
-function decodeBitfield(value, definitions) {
+function decodeBitfield(value: number, definitions: string[]): string[] {
   return definitions.filter((_, bit) => (value & (2 ** bit)) !== 0);
 }
 
-module.exports = {
-  bitfields,
-  decodeBitfield,
-  decodeValue,
-  valueStates,
-};
+export type { ValueStateMap };
+export { bitfields, decodeBitfield, decodeValue, valueStates };

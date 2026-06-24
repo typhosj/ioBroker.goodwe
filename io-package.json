@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.0.9",
+    "version": "1.1.0",
     "news": {
+      "1.1.0": {
+        "en": "Migrated adapter runtime to TypeScript and Node.js 20\nReplaced additional mode text states with enum labels on the numeric mode states",
+        "de": "Adapter-Laufzeit auf TypeScript und Node.js 20 migriert\nZusätzliche Modus-Text-States durch Enum-Beschriftungen an den numerischen Modus-States ersetzt",
+        "ru": "Среда выполнения адаптера перенесена на TypeScript и Node.js 20\nДополнительные текстовые состояния режимов заменены enum-метками на числовых состояниях режимов",
+        "pt": "Runtime do adaptador migrado para TypeScript e Node.js 20\nEstados de texto de modo adicionais substituídos por rótulos enum nos estados numéricos de modo",
+        "nl": "Adapter-runtime gemigreerd naar TypeScript en Node.js 20\nExtra modustekst-states vervangen door enum-labels op de numerieke modus-states",
+        "fr": "Runtime de l'adaptateur migré vers TypeScript et Node.js 20\nÉtats texte de mode supplémentaires remplacés par des libellés enum sur les états de mode numériques",
+        "it": "Runtime dell'adapter migrato a TypeScript e Node.js 20\nStati testo modalità aggiuntivi sostituiti da etichette enum sugli stati modalità numerici",
+        "es": "Runtime del adaptador migrado a TypeScript y Node.js 20\nEstados de texto de modo adicionales sustituidos por etiquetas enum en los estados numéricos de modo",
+        "pl": "Środowisko adaptera przeniesiono na TypeScript i Node.js 20\nDodatkowe tekstowe stany trybu zastąpiono etykietami enum na numerycznych stanach trybu",
+        "uk": "Середовище виконання адаптера перенесено на TypeScript і Node.js 20\nДодаткові текстові стани режимів замінено enum-мітками на числових станах режимів",
+        "zh-cn": "适配器运行时已迁移到 TypeScript 和 Node.js 20\n额外的模式文本状态已替换为数字模式状态上的枚举标签"
+      },
       "1.0.9": {
         "en": "Added inverter IPv4 validation\nAdded GoodWe UDP reachability check\nAdded network discovery and selectable inverter list",
         "de": "IPv4-Prüfung für die Wechselrichter-Adresse ergänzt\nGoodWe-UDP-Erreichbarkeitsprüfung ergänzt\nNetzwerksuche mit auswählbarer Wechselrichterliste ergänzt",
@@ -187,7 +200,7 @@
     ],
     "license": "MIT",
     "platform": "Javascript/Node.js",
-    "main": "main.js",
+    "main": "build/main.js",
     "icon": "goodwe.png",
     "enabled": true,
     "extIcon": "https://raw.githubusercontent.com/typhosj/ioBroker.goodwe/main/admin/goodwe.png",
@@ -208,7 +221,7 @@
     },
     "dependencies": [
       {
-        "js-controller": ">=3.3.22"
+        "js-controller": ">=6.0.0"
       }
     ],
     "globalDependencies": [

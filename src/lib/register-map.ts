@@ -1,5 +1,7 @@
 "use strict";
 
+import { valueStates, type ValueStateMap } from "./status-definitions";
+
 const TYPE = {
   U16: "U16",
   S16: "S16",
@@ -8,9 +10,41 @@ const TYPE = {
   FLOAT: "FLOAT",
   STRING: "STRING",
   BYTE: "BYTE",
-};
+} as const;
 
-const registerGroups = {
+type RegisterType = (typeof TYPE)[keyof typeof TYPE];
+
+interface RegisterEntry {
+  address: number;
+  state: string;
+  model: string;
+  type: RegisterType;
+  registers: number;
+  scale: number;
+  unit?: string;
+  role: string;
+  byteOffset: number;
+  states?: ValueStateMap;
+}
+
+interface RegisterGroup {
+  name: string;
+  start: number;
+  count: number;
+  channel: string;
+  entries: RegisterEntry[];
+}
+
+interface EntryOptions {
+  registers?: number;
+  scale?: number;
+  unit?: string;
+  role?: string;
+  byteOffset?: number;
+  states?: ValueStateMap;
+}
+
+const registerGroups: Record<string, RegisterGroup> = {
   deviceInfo: {
     name: "DeviceInfo",
     start: 35000,
@@ -120,15 +154,19 @@ const registerGroups = {
       }),
       entry(35119, "RunningData.PV4.Mode", "Pv4.Mode", TYPE.BYTE, {
         byteOffset: 0,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV3.Mode", "Pv3.Mode", TYPE.BYTE, {
         byteOffset: 1,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV2.Mode", "Pv2.Mode", TYPE.BYTE, {
         byteOffset: 2,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV1.Mode", "Pv1.Mode", TYPE.BYTE, {
         byteOffset: 3,
+        states: valueStates.pvMode,
       }),
       entry(35121, "RunningData.GridL1.Voltage", "GridL1.Voltage", TYPE.U16, {
         scale: 10,
@@ -184,7 +222,9 @@ const registerGroups = {
       entry(35135, "RunningData.GridL3.Power", "GridL3.Power", TYPE.S16, {
         unit: "W",
       }),
-      entry(35136, "RunningData.GridMode", "GridMode", TYPE.U16),
+      entry(35136, "RunningData.GridMode", "GridMode", TYPE.U16, {
+        states: valueStates.gridStatus,
+      }),
       entry(
         35138,
         "RunningData.InverterTotalPower",
@@ -222,7 +262,9 @@ const registerGroups = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35148, "RunningData.BackUpL1.Mode", "BackUpL1.Mode", TYPE.U16),
+      entry(35148, "RunningData.BackUpL1.Mode", "BackUpL1.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35150, "RunningData.BackUpL1.Power", "BackUpL1.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -247,7 +289,9 @@ const registerGroups = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35154, "RunningData.BackUpL2.Mode", "BackUpL2.Mode", TYPE.U16),
+      entry(35154, "RunningData.BackUpL2.Mode", "BackUpL2.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35156, "RunningData.BackUpL2.Power", "BackUpL2.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -272,7 +316,9 @@ const registerGroups = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35160, "RunningData.BackUpL3.Mode", "BackUpL3.Mode", TYPE.U16),
+      entry(35160, "RunningData.BackUpL3.Mode", "BackUpL3.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35162, "RunningData.BackUpL3.Power", "BackUpL3.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -342,11 +388,17 @@ const registerGroups = {
       entry(35183, "RunningData.Battery1.Power", "Battery1.Power", TYPE.S16, {
         unit: "W",
       }),
-      entry(35184, "RunningData.Battery1.Mode", "Battery1.Mode", TYPE.U16),
+      entry(35184, "RunningData.Battery1.Mode", "Battery1.Mode", TYPE.U16, {
+        states: valueStates.batteryStatus,
+      }),
       entry(35185, "RunningData.WarningCode", "WarningCode", TYPE.U16),
       entry(35186, "RunningData.SafetyCountry", "SafetyCountry", TYPE.U16),
-      entry(35187, "RunningData.WorkMode", "WorkMode", TYPE.U16),
-      entry(35188, "RunningData.OperationMode", "OperationMode", TYPE.U16),
+      entry(35187, "RunningData.WorkMode", "WorkMode", TYPE.U16, {
+        states: valueStates.workMode,
+      }),
+      entry(35188, "RunningData.OperationMode", "OperationMode", TYPE.U16, {
+        states: valueStates.operationMode,
+      }),
       entry(35189, "RunningData.ErrorMessage", "ErrorMessage", TYPE.U32),
       entry(35191, "RunningData.PvEnergyTotal", "PvEnergyTotal", TYPE.U32, {
         scale: 10,
@@ -963,7 +1015,7 @@ const registerGroups = {
   },
 };
 
-const optionalGroupConfigs = {
+const optionalGroupConfigs: Record<string, string> = {
   deviceSimccid: "pollSimccid",
   extComDataExtended: "pollExtendedMeter",
   flashInfo: "pollFlashInfo",
@@ -973,7 +1025,13 @@ const optionalGroupConfigs = {
   powerLimit: "pollPowerLimit",
 };
 
-function entry(address, state, model, type, options = {}) {
+function entry(
+  address: number,
+  state: string,
+  model: string,
+  type: RegisterType,
+  options: EntryOptions = {},
+): RegisterEntry {
   return {
     address,
     state,
@@ -984,10 +1042,11 @@ function entry(address, state, model, type, options = {}) {
     unit: options.unit,
     role: options.role ?? roleForUnit(options.unit),
     byteOffset: options.byteOffset ?? 0,
+    states: options.states,
   };
 }
 
-function typeRegisterCount(type) {
+function typeRegisterCount(type: RegisterType): number {
   switch (type) {
     case TYPE.U32:
     case TYPE.S32:
@@ -999,11 +1058,11 @@ function typeRegisterCount(type) {
   }
 }
 
-function range(start, end) {
+function range(start: number, end: number): number[] {
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
-function ceiLineEntries(line, start) {
+function ceiLineEntries(line: number, start: number): RegisterEntry[] {
   const prefix = `CEIAutoTest.Line${line}`;
   const model = `Line${line}`;
 
@@ -1174,7 +1233,7 @@ function ceiLineEntries(line, start) {
   ];
 }
 
-function roleForUnit(unit) {
+function roleForUnit(unit?: string): string {
   switch (unit) {
     case "W":
     case "var":
@@ -1203,8 +1262,5 @@ function roleForUnit(unit) {
   }
 }
 
-module.exports = {
-  optionalGroupConfigs,
-  TYPE,
-  registerGroups,
-};
+export type { RegisterEntry, RegisterGroup };
+export { optionalGroupConfigs, TYPE, registerGroups };
