@@ -358,7 +358,8 @@ class GoodWeStateManager {
     if (
       state === "RunningData.Battery1.Mode" &&
       (value === 2 || value === 3) &&
-      this.GetMappedValue("Battery1.Power", source) === 0
+      (this.GetMappedValue("Battery1.Current", source) === 0 ||
+        this.GetMappedValue("Battery1.Power", source) === 0)
     ) {
       return 1;
     }

@@ -518,7 +518,7 @@ describe("state mapping", () => {
     ]);
   });
 
-  it("treats charging or discharging battery mode with zero power as standby", async () => {
+  it("treats charging or discharging battery mode with zero current as standby", async () => {
     const writes: StateWrite[] = [];
     const adapter: StateAdapterLike = {
       config: testConfig,
@@ -538,7 +538,7 @@ describe("state mapping", () => {
     };
     const inverter = {
       RunningData: {
-        Battery1: { Mode: 2, Power: 0 },
+        Battery1: { Mode: 2, Current: 0, Power: 3 },
       },
     };
     const manager = new GoodWeStateManager(
