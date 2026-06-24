@@ -32,7 +32,6 @@ import {
   getDecodedRunningStatuses,
 } from "../src/mappers/status-mapper";
 import type { GoodWeUdp } from "../src/GoodWe/GoodWe";
-import type * as GoodWeTypes from "../src/GoodWe/GoodWe";
 import type * as DiscoveryTypes from "../src/lib/goodwe-discovery";
 
 type StateAdapterLike = ConstructorParameters<typeof GoodWeStateManager>[0];
@@ -285,7 +284,7 @@ describe("GoodWe discovery helpers", () => {
   it("logs socket close errors instead of swallowing them", async () => {
     const messages: string[] = [];
     const { probeGoodWeInverter } = proxyquire("../src/lib/goodwe-discovery", {
-      dgram: {
+      "node:dgram": {
         createSocket: () => new ClosingErrorSocket(),
       },
     }) as typeof DiscoveryTypes;
@@ -706,10 +705,10 @@ function writeAscii(
 
 function createInverter(socket: FakeSocket): GoodWeUdp {
   const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
-    dgram: {
+    "node:dgram": {
       createSocket: () => socket,
     },
-  }) as typeof GoodWeTypes;
+  }) as { GoodWeUdp: new (log: ioBroker.Logger) => GoodWeUdp };
 
   return new GoodWeUdp(testLogger);
 }

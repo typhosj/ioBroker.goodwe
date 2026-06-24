@@ -1,7 +1,7 @@
 "use strict";
 
-import dgram from "dgram";
-import os from "os";
+import dgram from "node:dgram";
+import os from "node:os";
 
 const GOODWE_PORT = 8899;
 const DEFAULT_PROBE_TIMEOUT_MS = 700;
@@ -222,7 +222,7 @@ function probeGoodWeInverter(
   return new Promise((resolve) => {
     const client = dgram.createSocket("udp4");
     let done = false;
-    const timeout = setTimeout(() => {
+    const timeout = globalThis.setTimeout(() => {
       finish({
         ip: validation.ip,
         reachable: false,
@@ -236,7 +236,7 @@ function probeGoodWeInverter(
       }
 
       done = true;
-      clearTimeout(timeout);
+      globalThis.clearTimeout(timeout);
       try {
         client.close();
       } catch (error) {

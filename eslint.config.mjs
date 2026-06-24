@@ -1,6 +1,11 @@
 // ioBroker eslint template configuration file for js and ts files
 // Please note that esm or react based modules need additional modules loaded.
 import config from "@iobroker/eslint-config";
+import { fileURLToPath } from "node:url";
+
+const tsconfigTestPath = fileURLToPath(
+  new URL("./tsconfig.test.json", import.meta.url),
+);
 
 export default [
   ...config,
@@ -20,7 +25,7 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: false,
-        project: "./tsconfig.test.json",
+        project: tsconfigTestPath,
       },
     },
   },

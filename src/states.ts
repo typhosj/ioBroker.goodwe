@@ -7,10 +7,8 @@ import {
   TYPE,
 } from "./lib/register-map";
 import {
-  type BmsStatusData,
   getDecodedBmsStatuses,
   getDecodedRunningStatuses,
-  type RunningStatusData,
 } from "./mappers/status-mapper";
 import type { GoodWeUdp } from "./GoodWe/GoodWe";
 
@@ -382,16 +380,14 @@ class GoodWeStateManager {
   }
 
   async UpdateDecodedRunningStatuses(): Promise<void> {
-    for (const state of getDecodedRunningStatuses(
-      this.inverter.RunningData as RunningStatusData,
-    )) {
+    for (const state of getDecodedRunningStatuses(this.inverter.RunningData)) {
       await this.adapter.setStateChangedAsync(state.id, state.value, true);
     }
   }
 
   async UpdateDecodedBmsStatuses(): Promise<void> {
     for (const state of getDecodedBmsStatuses(
-      this.inverter.BmsInfo as BmsStatusData,
+      this.inverter.BmsInfo,
       this.IsRegisterGroupEnabled("bmsInfoExtended"),
     )) {
       await this.adapter.setStateChangedAsync(state.id, state.value, true);
