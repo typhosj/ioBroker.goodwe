@@ -14,6 +14,8 @@
 
 Communication with GoodWe Inverter ET/EH/BH/BT Series
 
+Manufacturer: [GoodWe](https://www.goodwe.com/)
+
 ## Requirements
 
 * Node.js 20 or newer
