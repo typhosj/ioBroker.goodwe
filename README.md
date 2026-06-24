@@ -43,7 +43,7 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 | `RunningData.BackUpL1.*` ... `RunningData.BackUpL3.*` | Back-up output voltage, current, frequency, power and mode |
 | `RunningData.Battery1.*` | Battery voltage, current, power and mode |
 | `RunningData.*Energy*` | Daily and total energy counters |
-| `RunningData.*Text` | Decoded inverter, grid, PV, battery and back-up mode states |
+| `RunningData.*Mode`, `RunningData.GridMode`, `RunningData.WorkMode`, `RunningData.OperationMode` | Numeric mode states with ioBroker enum labels |
 | `RunningData.ErrorMessageActive` | Active inverter error bits as text |
 | `RunningData.DiagStatusActive` | Active diagnostic bits as text |
 | `ExtComData.*` | Smart meter and communication data |
@@ -101,6 +101,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 * Raised the minimum Node.js version to 20
 * Switched the packaged adapter entry point to the compiled `build/main.js`
 * Updated CI to run on Node.js 20 and verify the npm package contents
+* Replaced additional mode `*Text` states with enum labels on the numeric mode states
 
 ### 1.0.9 (2026-06-23)
 * Added validation for usable IPv4 inverter addresses

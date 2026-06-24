@@ -44,6 +44,11 @@ interface StateWrite {
   ack: boolean;
 }
 
+interface ObjectWrite {
+  id: string;
+  object: ioBroker.SettableObject;
+}
+
 function noop(): void {}
 
 const testLogger = {
@@ -132,6 +137,30 @@ describe("register map", () => {
     assert.ok(runningStates.includes("RunningData.ModuleTemperature"));
     assert.equal(runningStates.includes("RunningData.SaftyCountry"), false);
     assert.ok(runningStates.includes("RunningData.SafetyCountry"));
+  });
+
+  it("defines enum labels directly on numeric mode states", () => {
+    const runningEntries = new Map(
+      registerGroups.runningData.entries.map((item) => [item.state, item]),
+    );
+
+    assert.equal(runningEntries.get("RunningData.GridMode")?.states?.[1], "OK");
+    assert.equal(
+      runningEntries.get("RunningData.OperationMode")?.states?.[4],
+      "Battery",
+    );
+    assert.equal(
+      runningEntries.get("RunningData.PV1.Mode")?.states?.[2],
+      "Work",
+    );
+    assert.equal(
+      runningEntries.get("RunningData.Battery1.Mode")?.states?.[3],
+      "Charging",
+    );
+    assert.equal(
+      runningEntries.get("RunningData.BackUpL1.Mode")?.states?.[0],
+      "ON",
+    );
   });
 
   it("uses explicit units and sane roles", () => {
@@ -354,6 +383,38 @@ describe("GoodWe UDP parser", () => {
 });
 
 describe("state mapping", () => {
+  it("creates numeric mode states with enum labels", async () => {
+    const objects: ObjectWrite[] = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: (
+        id: string,
+        object: ioBroker.SettableObject,
+      ) => {
+        objects.push({ id, object });
+        return Promise.resolve(undefined);
+      },
+      getObjectAsync: () => Promise.resolve(undefined),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+    const manager = new GoodWeStateManager(adapter, {} as unknown as GoodWeUdp);
+
+    await manager.CreateObjectsFromRegisterMap();
+
+    const gridMode = objects.find(
+      (entry) => entry.id === "RunningData.GridMode",
+    )?.object;
+
+    assert.equal(gridMode?.type, "state");
+    assert.deepEqual(gridMode?.common.states, {
+      0: "Loss",
+      1: "OK",
+      2: "Fault",
+    });
+  });
+
   it("writes mapped register values through setStateChangedAsync", async () => {
     const writes: StateWrite[] = [];
     const adapter: StateAdapterLike = {
@@ -434,13 +495,9 @@ describe("status mapping", () => {
       true,
     );
 
-    assert.deepEqual(
-      runningStates.find((state) => state.id === "RunningData.GridModeText"),
-      { id: "RunningData.GridModeText", value: "OK" },
-    );
-    assert.deepEqual(
-      runningStates.find((state) => state.id === "RunningData.PV4.ModeText"),
-      { id: "RunningData.PV4.ModeText", value: "Unknown (99)" },
+    assert.equal(
+      runningStates.some((state) => state.id.endsWith("ModeText")),
+      false,
     );
     assert.deepEqual(
       runningStates.find(

@@ -1,5 +1,7 @@
 "use strict";
 
+import { valueStates, type ValueStateMap } from "./status-definitions";
+
 const TYPE = {
   U16: "U16",
   S16: "S16",
@@ -22,6 +24,7 @@ interface RegisterEntry {
   unit?: string;
   role: string;
   byteOffset: number;
+  states?: ValueStateMap;
 }
 
 interface RegisterGroup {
@@ -38,6 +41,7 @@ interface EntryOptions {
   unit?: string;
   role?: string;
   byteOffset?: number;
+  states?: ValueStateMap;
 }
 
 const registerGroups: Record<string, RegisterGroup> = {
@@ -150,15 +154,19 @@ const registerGroups: Record<string, RegisterGroup> = {
       }),
       entry(35119, "RunningData.PV4.Mode", "Pv4.Mode", TYPE.BYTE, {
         byteOffset: 0,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV3.Mode", "Pv3.Mode", TYPE.BYTE, {
         byteOffset: 1,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV2.Mode", "Pv2.Mode", TYPE.BYTE, {
         byteOffset: 2,
+        states: valueStates.pvMode,
       }),
       entry(35119, "RunningData.PV1.Mode", "Pv1.Mode", TYPE.BYTE, {
         byteOffset: 3,
+        states: valueStates.pvMode,
       }),
       entry(35121, "RunningData.GridL1.Voltage", "GridL1.Voltage", TYPE.U16, {
         scale: 10,
@@ -214,7 +222,9 @@ const registerGroups: Record<string, RegisterGroup> = {
       entry(35135, "RunningData.GridL3.Power", "GridL3.Power", TYPE.S16, {
         unit: "W",
       }),
-      entry(35136, "RunningData.GridMode", "GridMode", TYPE.U16),
+      entry(35136, "RunningData.GridMode", "GridMode", TYPE.U16, {
+        states: valueStates.gridStatus,
+      }),
       entry(
         35138,
         "RunningData.InverterTotalPower",
@@ -252,7 +262,9 @@ const registerGroups: Record<string, RegisterGroup> = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35148, "RunningData.BackUpL1.Mode", "BackUpL1.Mode", TYPE.U16),
+      entry(35148, "RunningData.BackUpL1.Mode", "BackUpL1.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35150, "RunningData.BackUpL1.Power", "BackUpL1.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -277,7 +289,9 @@ const registerGroups: Record<string, RegisterGroup> = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35154, "RunningData.BackUpL2.Mode", "BackUpL2.Mode", TYPE.U16),
+      entry(35154, "RunningData.BackUpL2.Mode", "BackUpL2.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35156, "RunningData.BackUpL2.Power", "BackUpL2.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -302,7 +316,9 @@ const registerGroups: Record<string, RegisterGroup> = {
         TYPE.U16,
         { scale: 100, unit: "Hz" },
       ),
-      entry(35160, "RunningData.BackUpL3.Mode", "BackUpL3.Mode", TYPE.U16),
+      entry(35160, "RunningData.BackUpL3.Mode", "BackUpL3.Mode", TYPE.U16, {
+        states: valueStates.backupStatus,
+      }),
       entry(35162, "RunningData.BackUpL3.Power", "BackUpL3.Power", TYPE.S16, {
         unit: "W",
       }),
@@ -372,11 +388,17 @@ const registerGroups: Record<string, RegisterGroup> = {
       entry(35183, "RunningData.Battery1.Power", "Battery1.Power", TYPE.S16, {
         unit: "W",
       }),
-      entry(35184, "RunningData.Battery1.Mode", "Battery1.Mode", TYPE.U16),
+      entry(35184, "RunningData.Battery1.Mode", "Battery1.Mode", TYPE.U16, {
+        states: valueStates.batteryStatus,
+      }),
       entry(35185, "RunningData.WarningCode", "WarningCode", TYPE.U16),
       entry(35186, "RunningData.SafetyCountry", "SafetyCountry", TYPE.U16),
-      entry(35187, "RunningData.WorkMode", "WorkMode", TYPE.U16),
-      entry(35188, "RunningData.OperationMode", "OperationMode", TYPE.U16),
+      entry(35187, "RunningData.WorkMode", "WorkMode", TYPE.U16, {
+        states: valueStates.workMode,
+      }),
+      entry(35188, "RunningData.OperationMode", "OperationMode", TYPE.U16, {
+        states: valueStates.operationMode,
+      }),
       entry(35189, "RunningData.ErrorMessage", "ErrorMessage", TYPE.U32),
       entry(35191, "RunningData.PvEnergyTotal", "PvEnergyTotal", TYPE.U32, {
         scale: 10,
@@ -1020,6 +1042,7 @@ function entry(
     unit: options.unit,
     role: options.role ?? roleForUnit(options.unit),
     byteOffset: options.byteOffset ?? 0,
+    states: options.states,
   };
 }
 

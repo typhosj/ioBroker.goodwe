@@ -1,11 +1,6 @@
 "use strict";
 
-import {
-  bitfields,
-  decodeBitfield,
-  decodeValue,
-  valueStates,
-} from "../lib/status-definitions";
+import { bitfields, decodeBitfield } from "../lib/status-definitions";
 
 interface RunningStatusData {
   GridMode: number;
@@ -39,46 +34,6 @@ interface MappedState {
 function getDecodedRunningStatuses(data: RunningStatusData): MappedState[] {
   const states: MappedState[] = [
     {
-      id: "RunningData.GridModeText",
-      value: decodeValue(data.GridMode, valueStates.gridStatus),
-    },
-    {
-      id: "RunningData.WorkModeText",
-      value: decodeValue(data.WorkMode, valueStates.workMode),
-    },
-    {
-      id: "RunningData.OperationModeText",
-      value: decodeValue(data.OperationMode, valueStates.operationMode),
-    },
-    {
-      id: "RunningData.Battery1.ModeText",
-      value: decodeValue(data.Battery1.Mode, valueStates.batteryStatus),
-    },
-  ];
-
-  const pvData = {
-    PV1: data.Pv1,
-    PV2: data.Pv2,
-    PV3: data.Pv3,
-    PV4: data.Pv4,
-  };
-
-  for (const pv of ["PV1", "PV2", "PV3", "PV4"] as const) {
-    states.push({
-      id: `RunningData.${pv}.ModeText`,
-      value: decodeValue(pvData[pv].Mode, valueStates.pvMode),
-    });
-  }
-
-  for (const phase of ["BackUpL1", "BackUpL2", "BackUpL3"] as const) {
-    states.push({
-      id: `RunningData.${phase}.ModeText`,
-      value: decodeValue(data[phase].Mode, valueStates.backupStatus),
-    });
-  }
-
-  states.push(
-    {
       id: "RunningData.ErrorMessageActive",
       value: decodeBitfield(data.ErrorMessage, bitfields.errorMessage).join(
         ", ",
@@ -90,7 +45,7 @@ function getDecodedRunningStatuses(data: RunningStatusData): MappedState[] {
         ", ",
       ),
     },
-  );
+  ];
 
   return states;
 }

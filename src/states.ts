@@ -34,6 +34,20 @@ const optionalDerivedStates: Record<string, string[]> = {
   bmsInfoExtended: ["BMSInfo.WarningCodeActive", "BMSInfo.DRMStatusActive"],
 };
 
+const legacyModeTextStates = [
+  "RunningData.GridModeText",
+  "RunningData.WorkModeText",
+  "RunningData.OperationModeText",
+  "RunningData.PV1.ModeText",
+  "RunningData.PV2.ModeText",
+  "RunningData.PV3.ModeText",
+  "RunningData.PV4.ModeText",
+  "RunningData.Battery1.ModeText",
+  "RunningData.BackUpL1.ModeText",
+  "RunningData.BackUpL2.ModeText",
+  "RunningData.BackUpL3.ModeText",
+];
+
 class GoodWeStateManager {
   private adapter: StateAdapter;
   private inverter: GoodWeUdp;
@@ -45,6 +59,7 @@ class GoodWeStateManager {
 
   async InitializeObjects(): Promise<void> {
     await this.DeleteLegacyTypoStates();
+    await this.DeleteLegacyModeTextStates();
     await this.CleanupDisabledOptionalStates();
     await this.CreateObjectsFromRegisterMap();
     await this.CreateDerivedObjects();
@@ -112,6 +127,7 @@ class GoodWeStateManager {
             read: true,
             write: false,
             unit: item.unit,
+            states: item.states,
           },
           native: {
             address: item.address,
@@ -222,21 +238,21 @@ class GoodWeStateManager {
     }
   }
 
+  async DeleteLegacyModeTextStates(): Promise<void> {
+    for (const state of legacyModeTextStates) {
+      const object = await this.adapter.getObjectAsync(state);
+
+      if (object) {
+        await this.adapter.delObjectAsync(state);
+        this.adapter.log.info(`Deleted legacy mode text state ${state}`);
+      }
+    }
+  }
+
   async CreateDecodedStatusObjects(): Promise<void> {
     const states = [
-      "RunningData.GridModeText",
-      "RunningData.WorkModeText",
-      "RunningData.OperationModeText",
       "RunningData.ErrorMessageActive",
       "RunningData.DiagStatusActive",
-      "RunningData.PV1.ModeText",
-      "RunningData.PV2.ModeText",
-      "RunningData.PV3.ModeText",
-      "RunningData.PV4.ModeText",
-      "RunningData.Battery1.ModeText",
-      "RunningData.BackUpL1.ModeText",
-      "RunningData.BackUpL2.ModeText",
-      "RunningData.BackUpL3.ModeText",
       "BMSInfo.ErrorCodeActive",
     ];
 
