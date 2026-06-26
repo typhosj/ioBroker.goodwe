@@ -98,6 +98,10 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+
+### **WORK IN PROGRESS**
+- (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
+
 ### 1.1.0 (2026-06-24)
 * Migrated the adapter runtime to TypeScript
 * Raised the minimum Node.js version to 22
