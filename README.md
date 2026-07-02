@@ -153,10 +153,12 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 ### 1.0.0 (2022-12-31)
 * (Thomas Schönberger) initial release
 
+[Older changelogs can be found there](CHANGELOG_OLD.md)
+
 ## License
 MIT License
 
-Copyright (c) 2023 Thomas Schönberger <SchoenbergerThomas@freenet.de>
+Copyright (c) 2023-2026 Thomas Schönberger <SchoenbergerThomas@freenet.de>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
