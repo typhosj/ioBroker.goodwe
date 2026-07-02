@@ -153,6 +153,8 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 ### 1.0.0 (2022-12-31)
 * (Thomas Schönberger) initial release
 
+[Older changelogs can be found there](CHANGELOG_OLD.md)
+
 ## License
 MIT License
 
