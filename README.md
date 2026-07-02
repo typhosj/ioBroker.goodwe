@@ -16,6 +16,9 @@ Communication with GoodWe Inverter ET/EH/BH/BT Series
 
 Manufacturer: [GoodWe](https://www.goodwe.com/)
 
+This adapter is based on the original work by Thomas Schönberger and is
+maintained and further developed by typhosj.
+
 ## Requirements
 
 * Node.js 22 or newer
@@ -145,6 +148,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 MIT License
 
 Copyright (c) 2023-2026 Thomas Schönberger <SchoenbergerThomas@freenet.de>
+Copyright (c) 2026 typhosj
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
