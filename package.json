@@ -58,7 +58,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:ts && build-adapter react",
+    "build": "npm run build:ts",
     "build:ts": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "test:js": "npm run build:test && mocha --config test/mocharc.custom.json \"build-test/test/main.test.js\"",
