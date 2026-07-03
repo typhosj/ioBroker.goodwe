@@ -238,8 +238,8 @@ class GoodWeUdp {
     Connect(IpAddr, Port, options = {}) {
         this.#ipAddr = IpAddr;
         this.#port = Port;
-        this.#timeoutMs = options.timeoutMs ?? _a.DefaultTimeoutMs;
-        this.#retries = options.retries ?? _a.DefaultRetries;
+        this.#timeoutMs = clampNumber(options.timeoutMs, _a.DefaultTimeoutMs, 1000, 30000);
+        this.#retries = clampNumber(options.retries, _a.DefaultRetries, 0, 5);
         return this.ReadIdInfo();
     }
     #handleMessage(rcvbuf) {
@@ -603,3 +603,9 @@ class GoodWeUdp {
 }
 exports.GoodWeUdp = GoodWeUdp;
 _a = GoodWeUdp;
+function clampNumber(value, fallback, min, max) {
+    if (value === undefined || !Number.isFinite(value)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, Math.floor(value)));
+}

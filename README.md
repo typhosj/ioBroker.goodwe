@@ -16,13 +16,13 @@ Communication with GoodWe Inverter ET/EH/BH/BT Series
 
 Manufacturer: [GoodWe](https://www.goodwe.com/)
 
-This adapter is based on the original work by Thomas Schönberger and is
-maintained and further developed by typhosj.
+This adapter is based on the original work by Thomas Schönberger.
 
 ## Requirements
 
 * Node.js 22 or newer
 * js-controller 6.0.11 or newer
+* admin 7.8.23 or newer
 
 ## Supported data
 
@@ -36,7 +36,7 @@ The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/
 * CEI auto test information
 * Power limit information
 
-Raw register values are kept as ioBroker states. Important mode and bitfield values are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
+Raw register values are kept as ioBroker states. Mode values are numeric states with ioBroker enum labels. Important bitfields are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
 
 ## Important states
 
@@ -53,10 +53,12 @@ Raw register values are kept as ioBroker states. Important mode and bitfield val
 | `RunningData.DiagStatusActive` | Active diagnostic bits as text |
 | `ExtComData.*` | Smart meter and communication data |
 | `BMSInfo.*` | BMS status, SOC, SOH, error and warning data |
-| `BMSInfo.*Active` | Decoded BMS alarm, warning and DRM bitfields |
+| `BMSInfo.ErrorCodeActive` | Decoded BMS alarm bitfield |
+| `BMSInfo.WarningCodeActive`, `BMSInfo.DRMStatusActive` | Decoded BMS warning and DRM bitfields when extended BMS polling is enabled |
+| `FlashInfo.*` | Flash version and write-count information if enabled and supported by the inverter |
+| `BMSDetail.*` | Detailed BMS values if enabled and supported by the inverter |
 | `CEIAutoTest.*` | CEI auto test values if supported by the inverter |
-
-`RunningData.ModuleTemperature` and `RunningData.SafetyCountry` are the canonical state names. Older misspelled states are removed on adapter start.
+| `PowerLimit.*` | Power limit and dispatch values if enabled and supported by the inverter |
 
 ## Configuration
 
@@ -147,8 +149,9 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 ## License
 MIT License
 
-Copyright (c) 2023-2026 Thomas Schönberger <SchoenbergerThomas@freenet.de>
-Copyright (c) 2026 typhosj
+Copyright (c) 2023 Thomas Schönberger <SchoenbergerThomas@freenet.de>
+
+Copyright (c) 2025-2026 typhosj <typhosj@gmx.de>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

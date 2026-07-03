@@ -379,6 +379,16 @@ describe("GoodWe UDP parser", () => {
     assert.equal(inverter.RunningData.AcActivePower, -230);
     assert.equal(inverter.RunningData.GridL1.Voltage, 231.5);
   });
+
+  it("clamps invalid UDP retry configuration", async () => {
+    const socket = new FakeSocket(() => buildIdInfoResponse());
+    const inverter = createInverter(socket);
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, { retries: -1 }),
+      true,
+    );
+  });
 });
 
 describe("state mapping", () => {

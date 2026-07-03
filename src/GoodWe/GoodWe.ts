@@ -267,8 +267,18 @@ export class GoodWeUdp {
   ): Promise<boolean> {
     this.#ipAddr = IpAddr;
     this.#port = Port;
-    this.#timeoutMs = options.timeoutMs ?? GoodWeUdp.DefaultTimeoutMs;
-    this.#retries = options.retries ?? GoodWeUdp.DefaultRetries;
+    this.#timeoutMs = clampNumber(
+      options.timeoutMs,
+      GoodWeUdp.DefaultTimeoutMs,
+      1000,
+      30000,
+    );
+    this.#retries = clampNumber(
+      options.retries,
+      GoodWeUdp.DefaultRetries,
+      0,
+      5,
+    );
 
     return this.ReadIdInfo();
   }
@@ -789,4 +799,17 @@ export class GoodWeUdp {
   get PowerLimit(): Record<string, unknown> {
     return this.#powerLimit;
   }
+}
+
+function clampNumber(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.floor(value)));
 }
