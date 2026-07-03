@@ -144,7 +144,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 * (ty) Fixed EnergyDayDischarge
 * (mrx8) fixed memory leak
 
-[Older changelogs can be found there](CHANGELOG_OLD.md)
+[Older changelogs can be found here](CHANGELOG_OLD.md)
 
 ## License
 MIT License
