@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 const tsconfigTestPath = fileURLToPath(
   new URL("./tsconfig.test.json", import.meta.url),
 );
+const tsconfigAdminPath = fileURLToPath(
+  new URL("./src-admin/tsconfig.json", import.meta.url),
+);
 
 export default [
   ...config,
@@ -13,6 +16,7 @@ export default [
     // specify files to exclude from linting here
     ignores: [
       ".vscode/",
+      "admin/assets/",
       "build/",
       "build-test/",
       "**/*.test.js",
@@ -26,6 +30,15 @@ export default [
       parserOptions: {
         projectService: false,
         project: tsconfigTestPath,
+      },
+    },
+  },
+  {
+    files: ["src-admin/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: tsconfigAdminPath,
       },
     },
   },

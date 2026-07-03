@@ -105,6 +105,8 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 -->
 
 ### **WORK IN PROGRESS**
+- Migrated the admin configuration page to a React based UI and removed the legacy Materialize UI files.
+- Switched admin translations to direct `admin/i18n/*.json` usage and removed `words.js`.
 - Added translations for the admin configuration page and documented numeric setting limits.
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
 
