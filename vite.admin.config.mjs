@@ -3,7 +3,31 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: "src-admin",
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "inject-iobroker-admin-scripts",
+      transformIndexHtml() {
+        return [
+          {
+            tag: "script",
+            attrs: { src: "../../lib/js/jquery-3.2.1.min.js" },
+            injectTo: "head",
+          },
+          {
+            tag: "script",
+            attrs: { src: "../../socket.io/socket.io.js" },
+            injectTo: "head",
+          },
+          {
+            tag: "script",
+            attrs: { src: "../../js/adapter-settings.js" },
+            injectTo: "head",
+          },
+        ];
+      },
+    },
+  ],
   base: "./",
   build: {
     outDir: "../admin",
