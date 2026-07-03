@@ -66,8 +66,8 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
   Empty on fresh installations. The adapter validates this as a usable IPv4 host address on startup.
 * `discoverySubnet`: Optional `/24` subnet for network discovery, for example `192.168.178.0/24`.
 * `pollCycle`: Base poll cycle in seconds.
-* `timeoutMs`: UDP request timeout in milliseconds.
-* `retries`: Retry count per UDP request.
+* `timeoutMs`: UDP request timeout in milliseconds, from 1000 to 30000.
+* `retries`: Retry count per UDP request, from 0 to 5.
 * `pollExtended`: Master switch for optional register groups.
 * `pollSimccid`: Enables optional SIMCCID polling.
 * `pollExtendedMeter`: Enables extended meter registers.
@@ -105,6 +105,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 -->
 
 ### **WORK IN PROGRESS**
+- Added translations for the admin configuration page and documented numeric setting limits.
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
 
 ### 1.1.0 (2026-06-24)

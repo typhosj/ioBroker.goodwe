@@ -61,8 +61,8 @@
 	<div class="row">
 		<div class="col s12">
 			<ul class="tabs">
-				<li class="tab col s6"><a class="active" href="#tab-basic">Basic settings</a></li>
-				<li class="tab col s6"><a href="#tab-advanced">Advanced settings</a></li>
+				<li class="tab col s6"><a class="active translate" href="#tab-basic">Basic settings</a></li>
+				<li class="tab col s6"><a class="translate" href="#tab-advanced">Advanced settings</a></li>
 			</ul>
 		</div>
 	</div>
@@ -71,22 +71,22 @@
 		<div class="row">
 			<div class="input-field col s12 m9">
 				<input class="value" id="ipAddr" type="text" placeholder="192.168.1.42">
-				<label for="ipAddr">Inverter IP</label>
-				<span class="helper-text">Only the IPv4 address is saved here.</span>
+				<label class="translate" for="ipAddr">Inverter IP</label>
+				<span class="helper-text translate">Only the IPv4 address is saved here.</span>
 			</div>
 			<div class="input-field col s12 m3">
-				<a id="validateIp" class="waves-effect waves-light btn-small blue">Validate inverter IP</a>
+				<a id="validateIp" class="waves-effect waves-light btn-small blue translate">Validate inverter IP</a>
 			</div>
 		</div>
 
 		<div class="row">
 			<div class="input-field col s12 m6">
 				<input class="value" id="discoverySubnet" type="text" placeholder="192.168.1.0/24">
-				<label for="discoverySubnet">Discovery subnet</label>
-				<span class="helper-text">Optional /24 subnet. Empty uses configured IP and local interfaces.</span>
+				<label class="translate" for="discoverySubnet">Discovery subnet</label>
+				<span class="helper-text translate">Optional /24 subnet. Empty uses configured IP and local interfaces.</span>
 			</div>
 			<div class="input-field col s12 m6 discovery-actions">
-				<a id="discoverInverters" class="waves-effect waves-light btn-small blue">Discover inverters</a>
+				<a id="discoverInverters" class="waves-effect waves-light btn-small blue translate">Discover inverters</a>
 			</div>
 		</div>
 
@@ -95,17 +95,18 @@
 		<div class="row">
 			<div class="input-field col s12 m4">
 				<input class="value number" id="pollCycle" type="number" min="10" max="3600">
-				<label for="pollCycle">Poll cycle</label>
-				<span class="helper-text">Seconds</span>
+				<label class="translate" for="pollCycle">Poll cycle</label>
+				<span class="helper-text translate">Seconds, 10-3600</span>
 			</div>
 			<div class="input-field col s12 m4">
 				<input class="value number" id="timeoutMs" type="number" min="1000" max="30000">
-				<label for="timeoutMs">Timeout</label>
-				<span class="helper-text">Milliseconds</span>
+				<label class="translate" for="timeoutMs">Timeout</label>
+				<span class="helper-text translate">Milliseconds, 1000-30000</span>
 			</div>
 			<div class="input-field col s12 m4">
 				<input class="value number" id="retries" type="number" min="0" max="5">
-				<label for="retries">Retries</label>
+				<label class="translate" for="retries">Retries</label>
+				<span class="helper-text translate">0-5 per UDP request</span>
 			</div>
 		</div>
 	</div>
@@ -115,49 +116,49 @@
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollExtended" type="checkbox">
-					<span>Poll extended registers</span>
+					<span class="translate">Poll extended registers</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollSimccid" type="checkbox">
-					<span>Poll SIMCCID</span>
+					<span class="translate">Poll SIMCCID</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollExtendedMeter" type="checkbox">
-					<span>Poll extended meter</span>
+					<span class="translate">Poll extended meter</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollFlashInfo" type="checkbox">
-					<span>Poll flash info</span>
+					<span class="translate">Poll flash info</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollBmsExtended" type="checkbox">
-					<span>Poll BMS extended</span>
+					<span class="translate">Poll BMS extended</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollBmsDetail" type="checkbox">
-					<span>Poll BMS detail</span>
+					<span class="translate">Poll BMS detail</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollCeiAutoTest" type="checkbox">
-					<span>Poll CEI auto test</span>
+					<span class="translate">Poll CEI auto test</span>
 				</label>
 			</div>
 			<div class="col s12 m6">
 				<label>
 					<input class="value filled-in" id="pollPowerLimit" type="checkbox">
-					<span>Poll power limit</span>
+					<span class="translate">Poll power limit</span>
 				</label>
 			</div>
 		</div>

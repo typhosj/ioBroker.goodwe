@@ -1,6 +1,6 @@
 "use strict";
 
-/* global $, M, adapter, instance, sendTo, document */
+/* global $, M, _, adapter, instance, sendTo, document */
 /* eslint-disable @typescript-eslint/no-unused-vars, prefer-template */
 
 function load(settings, onChange) {
@@ -8,6 +8,7 @@ function load(settings, onChange) {
     settings = {};
   }
 
+  translatePage();
   initTabs();
 
   $(".value").each(function () {
@@ -38,7 +39,7 @@ function load(settings, onChange) {
     $("#ipAddr").val(ip);
     updateTextFields();
     onChange();
-    showToast("IP " + ip + " applied");
+    showToast(t("IP %s applied").replace("%s", ip));
   });
 
   onChange(false);
@@ -84,11 +85,11 @@ function validateIp() {
     },
     function (response) {
       if (response && response.valid && response.reachable) {
-        showToast("Inverter reachable");
+        showToast(t("Inverter reachable"));
         return;
       }
 
-      showToast((response && response.error) || "Inverter not reachable");
+      showToast((response && response.error) || t("Inverter not reachable"));
     },
   );
 }
@@ -123,9 +124,9 @@ function renderDiscoveryResult(response) {
 
   if (found.length === 0) {
     $("#discoveryResult").html(
-      '<div class="discovery-empty">No inverter found. Searched ' +
-        searched +
-        " addresses.</div>",
+      '<div class="discovery-empty">' +
+        t("No inverter found. Searched %s addresses.").replace("%s", searched) +
+        "</div>",
     );
     return;
   }
@@ -135,11 +136,11 @@ function renderDiscoveryResult(response) {
   }
 
   $("#discoveryResult").html(
-    "<div>Found " +
-      found.length +
-      " inverter(s). Searched " +
-      searched +
-      ' addresses.</div><table class="striped responsive-table"><thead><tr><th>IP</th><th>Info</th><th></th></tr></thead><tbody>' +
+    "<div>" +
+      t("Found %s inverter(s). Searched %s addresses.")
+        .replace("%s", found.length)
+        .replace("%s", searched) +
+      '</div><table class="striped responsive-table"><thead><tr><th>IP</th><th>Info</th><th></th></tr></thead><tbody>' +
       rows.join("") +
       "</tbody></table>",
   );
@@ -166,8 +167,27 @@ function renderDiscoveryRow(inverter) {
     details.join(" | ") +
     '</td><td class="right-align"><a class="waves-effect waves-light btn-small blue use-inverter-ip" data-ip="' +
     escapeHtml(inverter.ip) +
-    '">Use</a></td></tr>'
+    '">' +
+    t("Use") +
+    "</a></td></tr>"
   );
+}
+
+function translatePage() {
+  $(".translate").each(function () {
+    var $element = $(this);
+    var text = $element.text();
+
+    $element.text(t(text));
+  });
+}
+
+function t(text) {
+  if (typeof _ === "function") {
+    return _(text);
+  }
+
+  return text;
 }
 
 function updateTextFields() {
