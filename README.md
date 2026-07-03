@@ -150,8 +150,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 ## License
 MIT License
 
-Copyright (c) 2023 Thomas Schönberger <SchoenbergerThomas@freenet.de>
-
+Copyright (c) 2023 Thomas Schönberger <SchoenbergerThomas@freenet.de>  
 Copyright (c) 2025-2026 typhosj <typhosj@gmx.de>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
