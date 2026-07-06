@@ -4,6 +4,12 @@ import { optionalGroupConfigs, registerGroups } from "./lib/register-map";
 import type { GoodWeUdp } from "./GoodWe/GoodWe";
 import type GoodWeStateManager from "./states";
 
+const PollCycle = {
+  Default: 10,
+  Min: 10,
+  Max: 3600,
+};
+
 interface SchedulerAdapter {
   config: ioBroker.AdapterConfig;
   log: ioBroker.Logger;
@@ -129,7 +135,7 @@ class GoodWePollScheduler {
             break;
         }
 
-        if (this.cycleCnt >= this.adapter.config.pollCycle) {
+        if (this.cycleCnt >= clampPollCycle(this.adapter.config.pollCycle)) {
           this.cycleCnt = 0;
         }
 
@@ -214,5 +220,13 @@ class GoodWePollScheduler {
   }
 }
 
+function clampPollCycle(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return PollCycle.Default;
+  }
+
+  return Math.min(PollCycle.Max, Math.max(PollCycle.Min, Math.floor(value)));
+}
+
 export type { SchedulerAdapter };
-export { GoodWePollScheduler, PollScheduler };
+export { clampPollCycle, GoodWePollScheduler, PollScheduler };

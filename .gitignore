@@ -9,9 +9,6 @@ build-test/
 nbproject
 .commitinfo
 
-*.md
-!README.md
-!CHANGELOG_OLD.md
 
 # npm package files
 iobroker.*.tgz

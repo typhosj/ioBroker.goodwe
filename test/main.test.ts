@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import EventEmitter from "node:events";
 import proxyquire from "proxyquire";
-import { PollScheduler } from "../src/scheduler";
+import { clampPollCycle, PollScheduler } from "../src/scheduler";
 import GoodWeStateManager from "../src/states";
 import {
   optionalGroupConfigs,
@@ -639,6 +639,14 @@ describe("status mapping", () => {
 });
 
 describe("poll scheduler", () => {
+  it("clamps invalid poll cycle configuration", () => {
+    assert.equal(clampPollCycle(undefined), 10);
+    assert.equal(clampPollCycle(Number.NaN), 10);
+    assert.equal(clampPollCycle(0), 10);
+    assert.equal(clampPollCycle(99.9), 99);
+    assert.equal(clampPollCycle(9999), 3600);
+  });
+
   it("owns poll timeout lifecycle", async () => {
     let timeoutCallback: () => void = noop;
     let clearedTimer: ioBroker.Timeout | undefined;

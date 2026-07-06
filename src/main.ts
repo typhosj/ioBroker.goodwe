@@ -38,7 +38,6 @@ class Goodwe extends utils.Adapter {
 
     this.on("ready", this.onReady.bind(this));
     this.on("message", this.onMessage.bind(this));
-    this.on("stateChange", this.onStateChange.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
 
@@ -100,20 +99,6 @@ class Goodwe extends utils.Adapter {
     } catch (e) {
       this.log.error(`error: ${e}`);
       callback();
-    }
-  }
-
-  /**
-   * Is called if a subscribed state changes
-   *
-   * @param id
-   * @param state
-   */
-  onStateChange(id: string, state: ioBroker.State | null | undefined): void {
-    if (state) {
-      this.log.info(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
-    } else {
-      this.log.info(`state ${id} deleted`);
     }
   }
 

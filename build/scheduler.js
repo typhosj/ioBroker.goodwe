@@ -1,7 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PollScheduler = exports.GoodWePollScheduler = void 0;
+exports.clampPollCycle = clampPollCycle;
 const register_map_1 = require("./lib/register-map");
+const PollCycle = {
+    Default: 10,
+    Min: 10,
+    Max: 3600,
+};
 class PollScheduler {
     adapter;
     poll;
@@ -93,7 +99,7 @@ class GoodWePollScheduler {
                         }
                         break;
                 }
-                if (this.cycleCnt >= this.adapter.config.pollCycle) {
+                if (this.cycleCnt >= clampPollCycle(this.adapter.config.pollCycle)) {
                     this.cycleCnt = 0;
                 }
                 this.cycleCnt++;
@@ -158,3 +164,9 @@ class GoodWePollScheduler {
     }
 }
 exports.GoodWePollScheduler = GoodWePollScheduler;
+function clampPollCycle(value) {
+    if (value === undefined || !Number.isFinite(value)) {
+        return PollCycle.Default;
+    }
+    return Math.min(PollCycle.Max, Math.max(PollCycle.Min, Math.floor(value)));
+}
