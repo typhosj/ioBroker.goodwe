@@ -109,6 +109,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 - Switched admin translations to direct `admin/i18n/*.json` usage and removed `words.js`.
 - Avoided rebuilding the admin bundle during GitHub installs.
 - Added translations for the admin configuration page and documented numeric setting limits.
+- Fixed admin button alignment and scoped adapter styles to avoid affecting ioBroker footer buttons.
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
 
 ### 1.1.0 (2026-06-24)

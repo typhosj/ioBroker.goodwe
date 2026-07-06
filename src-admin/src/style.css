@@ -1,19 +1,16 @@
-:root {
+.shell {
   color: #1c252c;
   font-family: Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
   background: #f6f8fa;
 }
 
-* {
+.shell,
+.shell * {
   box-sizing: border-box;
 }
 
-body {
-  margin: 0;
-}
-
-button,
-input {
+.shell button,
+.shell input {
   font: inherit;
 }
 
@@ -40,7 +37,7 @@ input {
 }
 
 .tabs button.active {
-  border-color: #1f7a8c;
+  border-color: #2196f3;
   color: #15313a;
   font-weight: 700;
 }
@@ -52,7 +49,7 @@ input {
 .grid {
   display: grid;
   gap: 16px;
-  align-items: end;
+  align-items: start;
   margin-bottom: 20px;
 }
 
@@ -93,12 +90,16 @@ input {
 .button {
   min-height: 42px;
   padding: 0 16px;
-  border: 1px solid #1f7a8c;
+  border: 1px solid #2196f3;
   border-radius: 6px;
-  background: #1f7a8c;
+  background: #2196f3;
   color: #fff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.action-button {
+  margin-top: 27px;
 }
 
 .button:disabled {
@@ -118,8 +119,8 @@ input {
 
 .message {
   padding: 12px 14px;
-  border-left: 4px solid #1f7a8c;
-  background: #e8f3f5;
+  border-left: 4px solid #2196f3;
+  background: #e3f2fd;
 }
 
 table {

@@ -280,7 +280,7 @@ function App(): React.JSX.Element {
               onChange={(value) => updateConfig("ipAddr", value)}
             />
             <button
-              className="button"
+              className="button action-button"
               disabled={busy !== null}
               type="button"
               onClick={validateIp}
@@ -300,7 +300,7 @@ function App(): React.JSX.Element {
               onChange={(value) => updateConfig("discoverySubnet", value)}
             />
             <button
-              className="button"
+              className="button action-button"
               disabled={busy !== null}
               type="button"
               onClick={discoverInverters}
