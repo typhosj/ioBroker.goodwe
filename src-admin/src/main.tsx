@@ -1,4 +1,35 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  GenericApp,
+  I18n,
+  Loader,
+  type GenericAppProps,
+  type GenericAppState,
+} from "@iobroker/adapter-react-v5";
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  CssBaseline,
+  FormControlLabel,
+  FormGroup,
+  FormHelperText,
+  Paper,
+  Snackbar,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tabs,
+  TextField,
+  ThemeProvider,
+  Typography,
+} from "@mui/material";
+import Grid from "@mui/material/Grid2";
+import React, { useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import de from "../../admin/i18n/de.json";
 import en from "../../admin/i18n/en.json";
@@ -52,26 +83,11 @@ type ValidateResponse = {
   error?: string;
 };
 
-type AdapterWindow = Window &
-  typeof globalThis & {
-    adapter: string;
-    instance: number;
-    systemLang?: string;
-    sendTo: (
-      target: string,
-      command: string,
-      message: Record<string, unknown>,
-      callback: (response: unknown) => void,
-    ) => void;
-    load: (
-      settings: Partial<NativeConfig>,
-      onChange: (changed?: boolean) => void,
-    ) => void;
-    save: (callback: (settings: NativeConfig) => void) => void;
-  };
-
-type TranslationKey = keyof typeof en;
-type Translations = Record<TranslationKey, string>;
+type SendCommand = (
+  command: string,
+  message: Record<string, unknown>,
+  timeoutMs?: number,
+) => Promise<unknown>;
 
 const DEFAULT_CONFIG: NativeConfig = {
   ipAddr: "",
@@ -89,21 +105,56 @@ const DEFAULT_CONFIG: NativeConfig = {
   pollPowerLimit: false,
 };
 
-const ADVANCED_FIELDS: Array<{ key: keyof NativeConfig; label: string }> = [
-  { key: "pollExtended", label: "Poll extended registers" },
-  { key: "pollSimccid", label: "Poll SIMCCID" },
-  { key: "pollExtendedMeter", label: "Poll extended meter" },
-  { key: "pollFlashInfo", label: "Poll flash info" },
-  { key: "pollBmsExtended", label: "Poll BMS extended" },
-  { key: "pollBmsDetail", label: "Poll BMS detail" },
-  { key: "pollCeiAutoTest", label: "Poll CEI auto test" },
-  { key: "pollPowerLimit", label: "Poll power limit" },
+const ADVANCED_FIELDS: Array<{
+  key: keyof NativeConfig;
+  label: string;
+  help: string;
+}> = [
+  {
+    key: "pollExtended",
+    label: "Poll extended registers",
+    help: "Reads running data registers 35100-35220: PV, grid, load, battery, temperatures, modes, errors, energy and diagnostics.",
+  },
+  {
+    key: "pollSimccid",
+    label: "Poll SIMCCID",
+    help: "Reads SIMCCID register 35050 from the GPRS module.",
+  },
+  {
+    key: "pollExtendedMeter",
+    label: "Poll extended meter",
+    help: "Reads external meter registers 36000-36044: connection state, phase power, power factor, frequency and total energy.",
+  },
+  {
+    key: "pollFlashInfo",
+    label: "Poll flash info",
+    help: "Reads flash registers 36900-36913: parameter versions, write counters, EEPROM version and Wi-Fi debug counters.",
+  },
+  {
+    key: "pollBmsExtended",
+    label: "Poll BMS extended",
+    help: "Reads BMS registers 37000-37055: battery status, SOC/SOH, errors, warnings, cell min/max values and pass information.",
+  },
+  {
+    key: "pollBmsDetail",
+    label: "Poll BMS detail",
+    help: "Reads detailed BMS registers 37100-37149: BMS mode, charge/discharge limits, relay status, module currents, SOC and serial numbers.",
+  },
+  {
+    key: "pollCeiAutoTest",
+    label: "Poll CEI auto test",
+    help: "Reads CEI auto-test registers 38000-38067: test mode, result, phase voltage/frequency fault values and times.",
+  },
+  {
+    key: "pollPowerLimit",
+    label: "Poll power limit",
+    help: "Reads power limit registers 38450-38463: feed-in limit, phase limits, power factor, PV meter power, grid charge and dispatch values.",
+  },
 ];
 
-let currentConfig: NativeConfig = DEFAULT_CONFIG;
-let notifyChange: (changed?: boolean) => void = () => undefined;
+const SEND_TIMEOUT_MS = 45000;
 
-const TRANSLATIONS: Record<string, Translations> = {
+I18n.setTranslations({
   de,
   en,
   es,
@@ -115,27 +166,37 @@ const TRANSLATIONS: Record<string, Translations> = {
   ru,
   uk,
   "zh-cn": zhCn,
-};
+});
 
-function t(text: string): string {
-  return getTranslations()[text as TranslationKey] ?? text;
+function t(text: string, ...args: Array<string | number>): string {
+  return I18n.t(text, ...args);
 }
 
-function getTranslations(): Translations {
-  const adminWindow = window as AdapterWindow;
-  const language = normalizeLanguage(adminWindow.systemLang || "en");
+function normalizeNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
 
-  return TRANSLATIONS[language] ?? en;
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizeLanguage(language: string): string {
-  const lower = language.toLowerCase();
+function clampNumber(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  return Math.min(max, Math.max(min, normalizeNumber(value, fallback)));
+}
 
-  if (lower === "zh-cn" || lower === "zh") {
-    return "zh-cn";
+function normalizeString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
   }
 
-  return lower.split("-")[0] || "en";
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return "";
 }
 
 function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
@@ -144,51 +205,50 @@ function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
     ...settings,
     ipAddr: String(settings.ipAddr ?? ""),
     discoverySubnet: String(settings.discoverySubnet ?? ""),
-    pollCycle: Number(settings.pollCycle ?? DEFAULT_CONFIG.pollCycle),
-    timeoutMs: Number(settings.timeoutMs ?? DEFAULT_CONFIG.timeoutMs),
-    retries: Number(settings.retries ?? DEFAULT_CONFIG.retries),
-    pollExtended: settings.pollExtended === true,
-    pollSimccid: settings.pollSimccid === true,
-    pollExtendedMeter: settings.pollExtendedMeter === true,
-    pollFlashInfo: settings.pollFlashInfo === true,
-    pollBmsExtended: settings.pollBmsExtended === true,
+    pollCycle: clampNumber(
+      settings.pollCycle,
+      DEFAULT_CONFIG.pollCycle,
+      10,
+      3600,
+    ),
+    timeoutMs: clampNumber(
+      settings.timeoutMs,
+      DEFAULT_CONFIG.timeoutMs,
+      1000,
+      30000,
+    ),
+    retries: clampNumber(settings.retries, DEFAULT_CONFIG.retries, 0, 5),
+    pollExtended: settings.pollExtended !== false,
+    pollSimccid: settings.pollSimccid !== false,
+    pollExtendedMeter: settings.pollExtendedMeter !== false,
+    pollFlashInfo: settings.pollFlashInfo !== false,
+    pollBmsExtended: settings.pollBmsExtended !== false,
     pollBmsDetail: settings.pollBmsDetail === true,
-    pollCeiAutoTest: settings.pollCeiAutoTest === true,
+    pollCeiAutoTest: settings.pollCeiAutoTest !== false,
     pollPowerLimit: settings.pollPowerLimit === true,
   };
 }
 
-function sendCommand(
-  command: string,
-  message: Record<string, unknown>,
-): Promise<unknown> {
-  const adminWindow = window as AdapterWindow;
-
-  return new Promise((resolve) => {
-    adminWindow.sendTo(
-      `${adminWindow.adapter}.${adminWindow.instance}`,
-      command,
-      message,
-      resolve,
-    );
-  });
-}
-
-function App(): React.JSX.Element {
-  const [config, setConfig] = useState<NativeConfig>(currentConfig);
-  const [activeTab, setActiveTab] = useState<"basic" | "advanced">("basic");
+function GoodWeConfig(props: {
+  config: NativeConfig;
+  sendCommand: SendCommand;
+  updateConfig: <Key extends keyof NativeConfig>(
+    key: Key,
+    value: NativeConfig[Key],
+  ) => void;
+}): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState(0);
   const [busy, setBusy] = useState<"validate" | "discover" | null>(null);
   const [message, setMessage] = useState("");
+  const [messageSeverity, setMessageSeverity] = useState<
+    "success" | "info" | "error"
+  >("info");
   const [discovery, setDiscovery] = useState<DiscoveryResponse | null>(null);
 
-  useEffect(() => {
-    currentConfig = config;
-  }, [config]);
-
-  const updateConfig = useCallback(
-    <Key extends keyof NativeConfig>(key: Key, value: NativeConfig[Key]) => {
-      setConfig((previous) => ({ ...previous, [key]: value }));
-      notifyChange();
+  const showMessage = useCallback(
+    (text: string, severity: "success" | "info" | "error" = "info") => {
+      setMessage(text);
+      setMessageSeverity(severity);
     },
     [],
   );
@@ -198,22 +258,29 @@ function App(): React.JSX.Element {
     setMessage("");
 
     try {
-      const response = (await sendCommand("validateIp", {
-        ip: config.ipAddr,
-        timeoutMs: 1000,
-      })) as ValidateResponse;
+      const response = (await props.sendCommand(
+        "validateIp",
+        {
+          ip: props.config.ipAddr,
+          timeoutMs: 1000,
+        },
+        5000,
+      )) as ValidateResponse;
 
-      setMessage(
-        response.valid && response.reachable
-          ? t("Inverter reachable")
-          : response.error || t("Inverter not reachable"),
-      );
+      if (response.valid && response.reachable) {
+        showMessage(t("Inverter reachable"), "success");
+      } else {
+        showMessage(response.error || t("Inverter not reachable"), "error");
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      showMessage(
+        error instanceof Error ? error.message : String(error),
+        "error",
+      );
     } finally {
       setBusy(null);
     }
-  }, [config.ipAddr]);
+  }, [props, showMessage]);
 
   const discoverInverters = useCallback(async () => {
     setBusy("discover");
@@ -221,97 +288,115 @@ function App(): React.JSX.Element {
     setDiscovery(null);
 
     try {
-      const response = (await sendCommand("discoverInverters", {
-        ip: config.ipAddr,
-        subnet: config.discoverySubnet,
+      const response = (await props.sendCommand("discoverInverters", {
+        ip: props.config.ipAddr,
+        subnet: props.config.discoverySubnet,
         timeoutMs: 700,
         concurrency: 64,
       })) as DiscoveryResponse;
 
       setDiscovery(response);
       if (response.error) {
-        setMessage(response.error);
+        showMessage(response.error, "error");
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      showMessage(
+        error instanceof Error ? error.message : String(error),
+        "error",
+      );
     } finally {
       setBusy(null);
     }
-  }, [config.discoverySubnet, config.ipAddr]);
+  }, [props, showMessage]);
 
   const applyIp = useCallback(
     (ip: string) => {
-      updateConfig("ipAddr", ip);
-      setMessage(t("IP %s applied").replace("%s", ip));
+      props.updateConfig("ipAddr", ip);
+      showMessage(t("IP %s applied", ip), "success");
     },
-    [updateConfig],
+    [props, showMessage],
   );
 
   const found = useMemo(() => discovery?.found ?? [], [discovery]);
   const searched = Number(discovery?.searched ?? 0);
+  const busyText = busy === "validate" ? t("Checking...") : t("Searching...");
+  const snackbarMessage = busy ? busyText : message;
 
   return (
-    <main className="shell">
-      <nav className="tabs" aria-label="GoodWe settings">
-        <button
-          className={activeTab === "basic" ? "active" : ""}
-          type="button"
-          onClick={() => setActiveTab("basic")}
-        >
-          {t("Basic settings")}
-        </button>
-        <button
-          className={activeTab === "advanced" ? "active" : ""}
-          type="button"
-          onClick={() => setActiveTab("advanced")}
-        >
-          {t("Advanced settings")}
-        </button>
-      </nav>
+    <Box
+      component="main"
+      sx={{
+        bgcolor: "background.default",
+        color: "text.primary",
+        height: "100%",
+        overflowY: "auto",
+        p: 1,
+      }}
+    >
+      <Tabs
+        aria-label={t("GoodWe settings")}
+        value={activeTab}
+        onChange={(_event, value: number) => setActiveTab(value)}
+      >
+        <Tab label={t("Basic settings")} />
+        <Tab label={t("Advanced settings")} />
+      </Tabs>
 
-      {activeTab === "basic" ? (
-        <section className="panel">
-          <div className="grid ip-row">
-            <TextField
-              help="Only the IPv4 address is saved here."
-              label="Inverter IP"
-              placeholder="192.168.1.42"
-              value={config.ipAddr}
-              onChange={(value) => updateConfig("ipAddr", value)}
-            />
-            <button
-              className="button action-button"
-              disabled={busy !== null}
-              type="button"
-              onClick={validateIp}
-            >
-              {busy === "validate"
-                ? t("Checking...")
-                : t("Validate inverter IP")}
-            </button>
-          </div>
+      {activeTab === 0 ? (
+        <Box sx={{ py: 2 }}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: "grow" }}>
+              <TextField
+                fullWidth
+                helperText={t(
+                  "IP address used for polling and connection checks.",
+                )}
+                label={t("Inverter IP")}
+                placeholder="192.168.1.42"
+                value={props.config.ipAddr}
+                onChange={(event) =>
+                  props.updateConfig("ipAddr", event.target.value)
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: "auto" }}>
+              <Button
+                disabled={busy !== null}
+                fullWidth
+                sx={{ minHeight: 56 }}
+                variant="contained"
+                onClick={validateIp}
+              >
+                {t("Validate inverter IP")}
+              </Button>
+            </Grid>
 
-          <div className="grid subnet-row">
-            <TextField
-              help="Optional /24 subnet. Empty uses configured IP and local interfaces."
-              label="Discovery subnet"
-              placeholder="192.168.1.0/24"
-              value={config.discoverySubnet}
-              onChange={(value) => updateConfig("discoverySubnet", value)}
-            />
-            <button
-              className="button action-button"
-              disabled={busy !== null}
-              type="button"
-              onClick={discoverInverters}
-            >
-              {busy === "discover"
-                ? t("Searching...")
-                : t("Discover inverters")}
-            </button>
-          </div>
-
-          {message !== "" ? <div className="message">{message}</div> : null}
+            <Grid size={{ xs: 12, md: "grow" }}>
+              <TextField
+                fullWidth
+                helperText={t(
+                  "Limits discovery to this /24 network. Leave empty to search local IPv4 networks.",
+                )}
+                label={t("Discovery subnet")}
+                placeholder="192.168.1.0/24"
+                value={props.config.discoverySubnet}
+                onChange={(event) =>
+                  props.updateConfig("discoverySubnet", event.target.value)
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: "auto" }}>
+              <Button
+                disabled={busy !== null}
+                fullWidth
+                sx={{ minHeight: 56 }}
+                variant="contained"
+                onClick={discoverInverters}
+              >
+                {t("Discover inverters")}
+              </Button>
+            </Grid>
+          </Grid>
 
           {discovery ? (
             <DiscoveryResult
@@ -321,107 +406,106 @@ function App(): React.JSX.Element {
             />
           ) : null}
 
-          <div className="grid timing-row">
-            <NumberField
-              help="Seconds, 10-3600"
-              label="Poll cycle"
-              max={3600}
-              min={10}
-              value={config.pollCycle}
-              onChange={(value) => updateConfig("pollCycle", value)}
-            />
-            <NumberField
-              help="Milliseconds, 1000-30000"
-              label="Timeout"
-              max={30000}
-              min={1000}
-              value={config.timeoutMs}
-              onChange={(value) => updateConfig("timeoutMs", value)}
-            />
-            <NumberField
-              help="0-5 per UDP request"
-              label="Retries"
-              max={5}
-              min={0}
-              value={config.retries}
-              onChange={(value) => updateConfig("retries", value)}
-            />
-          </div>
-        </section>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                fullWidth
+                helperText={t("Seconds, 10-3600")}
+                label={t("Poll cycle")}
+                slotProps={{ htmlInput: { min: 10, max: 3600 } }}
+                type="number"
+                value={props.config.pollCycle}
+                onChange={(event) =>
+                  props.updateConfig(
+                    "pollCycle",
+                    normalizeNumber(
+                      event.target.value,
+                      DEFAULT_CONFIG.pollCycle,
+                    ),
+                  )
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                fullWidth
+                helperText={t("Milliseconds, 1000-30000")}
+                label={t("Timeout")}
+                slotProps={{ htmlInput: { min: 1000, max: 30000 } }}
+                type="number"
+                value={props.config.timeoutMs}
+                onChange={(event) =>
+                  props.updateConfig(
+                    "timeoutMs",
+                    normalizeNumber(
+                      event.target.value,
+                      DEFAULT_CONFIG.timeoutMs,
+                    ),
+                  )
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                fullWidth
+                helperText={t("0-5 per UDP request")}
+                label={t("Retries")}
+                slotProps={{ htmlInput: { min: 0, max: 5 } }}
+                type="number"
+                value={props.config.retries}
+                onChange={(event) =>
+                  props.updateConfig(
+                    "retries",
+                    normalizeNumber(event.target.value, DEFAULT_CONFIG.retries),
+                  )
+                }
+              />
+            </Grid>
+          </Grid>
+        </Box>
       ) : (
-        <section className="panel checkbox-grid">
+        <FormGroup sx={{ py: 2 }}>
           {ADVANCED_FIELDS.map((field) => (
-            <CheckboxField
-              checked={config[field.key] === true}
-              key={field.key}
-              label={field.label}
-              onChange={(checked) => updateConfig(field.key, checked)}
-            />
+            <Box key={field.key} sx={{ mb: 1.5 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={props.config[field.key] === true}
+                    onChange={(event) =>
+                      props.updateConfig(field.key, event.target.checked)
+                    }
+                  />
+                }
+                label={t(field.label)}
+              />
+              <FormHelperText sx={{ ml: 4 }}>{t(field.help)}</FormHelperText>
+            </Box>
           ))}
-        </section>
+        </FormGroup>
       )}
-    </main>
-  );
-}
 
-function TextField(props: {
-  help: string;
-  label: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  value: string;
-}): React.JSX.Element {
-  return (
-    <label className="field">
-      <span>{t(props.label)}</span>
-      <input
-        placeholder={props.placeholder}
-        type="text"
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-      <small>{t(props.help)}</small>
-    </label>
-  );
-}
-
-function NumberField(props: {
-  help: string;
-  label: string;
-  max: number;
-  min: number;
-  onChange: (value: number) => void;
-  value: number;
-}): React.JSX.Element {
-  return (
-    <label className="field">
-      <span>{t(props.label)}</span>
-      <input
-        max={props.max}
-        min={props.min}
-        type="number"
-        value={props.value}
-        onChange={(event) => props.onChange(Number(event.target.value))}
-      />
-      <small>{t(props.help)}</small>
-    </label>
-  );
-}
-
-function CheckboxField(props: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}): React.JSX.Element {
-  return (
-    <label className="checkbox">
-      <input
-        checked={props.checked}
-        type="checkbox"
-        onChange={(event) => props.onChange(event.target.checked)}
-      />
-      <span>{t(props.label)}</span>
-    </label>
+      <Snackbar
+        autoHideDuration={busy ? null : 6000}
+        open={snackbarMessage !== ""}
+        onClose={() => {
+          if (!busy) {
+            setMessage("");
+          }
+        }}
+      >
+        <Alert
+          severity={busy ? "info" : messageSeverity}
+          variant="filled"
+          onClose={() => {
+            if (!busy) {
+              setMessage("");
+            }
+          }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
 
@@ -432,49 +516,50 @@ function DiscoveryResult(props: {
 }): React.JSX.Element {
   if (props.found.length === 0) {
     return (
-      <div className="empty">
-        {t("No inverter found. Searched %s addresses.").replace(
-          "%s",
-          String(props.searched),
-        )}
-      </div>
+      <Alert severity="info" sx={{ mt: 2, mb: 3 }}>
+        {t("No inverter found. Searched %s addresses.", props.searched)}
+      </Alert>
     );
   }
 
   return (
-    <div className="result">
-      <div>
-        {t("Found %s inverter(s). Searched %s addresses.")
-          .replace("%s", String(props.found.length))
-          .replace("%s", String(props.searched))}
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>IP</th>
-            <th>Info</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
+    <TableContainer component={Paper} sx={{ mt: 2, mb: 3 }}>
+      <Box sx={{ p: 2 }}>
+        <Typography variant="body2">
+          {t(
+            "Found %s inverter(s). Searched %s addresses.",
+            props.found.length,
+            props.searched,
+          )}
+        </Typography>
+      </Box>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>{t("IP")}</TableCell>
+            <TableCell>{t("Info")}</TableCell>
+            <TableCell align="right">{t("Action")}</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {props.found.map((inverter) => (
-            <tr key={inverter.ip}>
-              <td>{inverter.ip}</td>
-              <td>{formatInfo(inverter.idInfo)}</td>
-              <td>
-                <button
-                  className="button small"
-                  type="button"
+            <TableRow key={inverter.ip}>
+              <TableCell>{inverter.ip}</TableCell>
+              <TableCell>{formatInfo(inverter.idInfo)}</TableCell>
+              <TableCell align="right">
+                <Button
+                  size="small"
+                  variant="contained"
                   onClick={() => props.onApplyIp(inverter.ip)}
                 >
                   {t("Use")}
-                </button>
-              </td>
-            </tr>
+                </Button>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }
 
@@ -492,29 +577,106 @@ function formatInfo(info: DiscoveryInfo | undefined): string {
     .join(" | ");
 }
 
+class GoodWeApp extends GenericApp<GenericAppProps, GenericAppState> {
+  constructor(props: GenericAppProps) {
+    super(props, {
+      adapterName: "goodwe",
+      bottomButtons: true,
+      translations: {
+        de,
+        en,
+        es,
+        fr,
+        it,
+        nl,
+        pl,
+        pt,
+        ru,
+        uk,
+        "zh-cn": zhCn,
+      },
+    });
+  }
+
+  onPrepareLoad(
+    settings: Record<string, unknown>,
+    encryptedNative?: string[],
+  ): void {
+    super.onPrepareLoad(settings, encryptedNative);
+    Object.assign(settings, normalizeConfig(settings));
+  }
+
+  onPrepareSave(settings: Record<string, unknown>): boolean {
+    Object.assign(
+      settings,
+      normalizeConfig({
+        ...settings,
+        ipAddr: normalizeString(settings.ipAddr).trim(),
+        discoverySubnet: normalizeString(settings.discoverySubnet).trim(),
+      }),
+    );
+
+    return super.onPrepareSave(settings);
+  }
+
+  private sendCommand: SendCommand = (
+    command,
+    message,
+    timeoutMs = SEND_TIMEOUT_MS,
+  ) => {
+    const request = this.socket.sendTo(
+      `${this.adapterName}.${this.instance}`,
+      command,
+      message,
+    );
+    const timeout = new Promise<never>((_resolve, reject) => {
+      window.setTimeout(
+        () => reject(new Error(t("Request timed out"))),
+        timeoutMs,
+      );
+    });
+
+    return Promise.race([request, timeout]).then((response) => {
+      const typedResponse = response as { error?: string; result?: unknown };
+      if (typedResponse?.error) {
+        return { error: typedResponse.error };
+      }
+
+      return typedResponse?.result ?? response;
+    });
+  };
+
+  private updateConfig = <Key extends keyof NativeConfig>(
+    key: Key,
+    value: NativeConfig[Key],
+  ): void => {
+    this.updateNativeValue(key, value);
+  };
+
+  render(): React.JSX.Element {
+    if (!this.state.loaded) {
+      return <Loader themeType={this.state.themeType} />;
+    }
+
+    const config = normalizeConfig(this.state.native as Partial<NativeConfig>);
+
+    return (
+      <ThemeProvider theme={this.state.theme}>
+        <CssBaseline />
+        <GoodWeConfig
+          config={config}
+          sendCommand={this.sendCommand}
+          updateConfig={this.updateConfig}
+        />
+        {this.renderHelperDialogs()}
+      </ThemeProvider>
+    );
+  }
+}
+
 const container = document.getElementById("root");
 if (!container) {
   throw new Error("Missing #root element");
 }
 
-const root = createRoot(container);
-const adminWindow = window as AdapterWindow;
-
-function render(settings: Partial<NativeConfig>): void {
-  currentConfig = normalizeConfig(settings);
-  root.render(<App />);
-}
-
-adminWindow.load = (settings, onChange) => {
-  notifyChange = onChange;
-  render(settings || {});
-  onChange(false);
-};
-
-adminWindow.save = (callback) => {
-  callback({
-    ...currentConfig,
-    ipAddr: currentConfig.ipAddr.trim(),
-    discoverySubnet: currentConfig.discoverySubnet.trim(),
-  });
-};
+createRoot(container).render(<GoodWeApp />);

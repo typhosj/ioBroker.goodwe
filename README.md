@@ -105,12 +105,10 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 -->
 
 ### **WORK IN PROGRESS**
-- Migrated the admin configuration page to a React based UI and removed the legacy Materialize UI files.
-- Switched admin translations to direct `admin/i18n/*.json` usage and removed `words.js`.
-- Avoided rebuilding the admin bundle during GitHub installs.
-- Added translations for the admin configuration page and documented numeric setting limits.
-- Fixed admin button alignment and scoped adapter styles to avoid affecting ioBroker footer buttons.
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
+- Migrated the admin configuration page to a React based UI and removed the legacy Materialize UI files.
+- Added translations for the admin configuration page and documented numeric setting limits.
+- Avoided rebuilding the admin bundle during GitHub installs.
 
 ### 1.1.0 (2026-06-24)
 * Migrated the adapter runtime to TypeScript
