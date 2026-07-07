@@ -6,6 +6,12 @@
     "name": "Thomas Schönberger",
     "email": "SchoenbergerThomas@freenet.de"
   },
+  "contributors": [
+    {
+      "name": "typhosj",
+      "email": "typhosj@gmx.de"
+    }
+  ],
   "homepage": "https://github.com/typhosj/ioBroker.goodwe",
   "license": "MIT",
   "keywords": [
@@ -79,7 +85,6 @@
     "test": "npm run test:js && npm run test:package",
     "check": "tsc --noEmit -p tsconfig.check.json",
     "lint": "eslint .",
-    "prepare": "npm run build:ts",
     "translate": "translate-adapter",
     "release": "release-script patch --yes",
     "release-minor": "release-script minor --yes",

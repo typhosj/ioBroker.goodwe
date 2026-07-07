@@ -2,6 +2,7 @@ import {
   GenericApp,
   I18n,
   Loader,
+  Logo,
   type GenericAppProps,
   type GenericAppState,
 } from "@iobroker/adapter-react-v5";
@@ -28,6 +29,8 @@ import {
   ThemeProvider,
   Typography,
 } from "@mui/material";
+import SettingsIcon from "@mui/icons-material/Settings";
+import TuneIcon from "@mui/icons-material/Tune";
 import Grid from "@mui/material/Grid2";
 import React, { useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -153,6 +156,9 @@ const ADVANCED_FIELDS: Array<{
 ];
 
 const SEND_TIMEOUT_MS = 45000;
+const README_URL =
+  "https://github.com/typhosj/ioBroker.goodwe/blob/main/README.md";
+const FOOTER_HEIGHT = { xs: 56, sm: 64 };
 
 I18n.setTranslations({
   de,
@@ -230,7 +236,11 @@ function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
 }
 
 function GoodWeConfig(props: {
+  common: Record<string, unknown>;
   config: NativeConfig;
+  instance: number;
+  onError: (text: string) => void;
+  onLoadConfig: (config: Record<string, unknown>) => void;
   sendCommand: SendCommand;
   updateConfig: <Key extends keyof NativeConfig>(
     key: Key,
@@ -328,22 +338,62 @@ function GoodWeConfig(props: {
       sx={{
         bgcolor: "background.default",
         color: "text.primary",
-        height: "100%",
+        height: {
+          xs: `calc(100% - ${FOOTER_HEIGHT.xs}px)`,
+          sm: `calc(100% - ${FOOTER_HEIGHT.sm}px)`,
+        },
         overflowY: "auto",
-        p: 1,
       }}
     >
+      <Box
+        sx={{
+          minHeight: 72,
+          position: "relative",
+          px: 1,
+          py: 1,
+        }}
+      >
+        <Logo
+          common={props.common}
+          instance={props.instance}
+          native={props.config}
+          onError={props.onError}
+          onLoad={props.onLoadConfig}
+        />
+        <Typography
+          component="h1"
+          sx={{
+            fontWeight: 700,
+            left: 84,
+            position: "absolute",
+            top: 18,
+          }}
+          variant="h6"
+        >
+          GoodWe
+        </Typography>
+      </Box>
+
       <Tabs
         aria-label={t("GoodWe settings")}
+        sx={{ borderBottom: 1, borderColor: "divider" }}
         value={activeTab}
         onChange={(_event, value: number) => setActiveTab(value)}
       >
-        <Tab label={t("Basic settings")} />
-        <Tab label={t("Advanced settings")} />
+        <Tab
+          icon={<SettingsIcon />}
+          iconPosition="start"
+          label={t("Basic settings")}
+        />
+        <Tab
+          icon={<TuneIcon />}
+          iconPosition="start"
+          label={t("Advanced settings")}
+        />
       </Tabs>
 
       {activeTab === 0 ? (
-        <Box sx={{ py: 2 }}>
+        <Box sx={{ p: 1, py: 2 }}>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: "grow" }}>
               <TextField
@@ -354,6 +404,7 @@ function GoodWeConfig(props: {
                 label={t("Inverter IP")}
                 placeholder="192.168.1.42"
                 value={props.config.ipAddr}
+                variant="standard"
                 onChange={(event) =>
                   props.updateConfig("ipAddr", event.target.value)
                 }
@@ -363,7 +414,6 @@ function GoodWeConfig(props: {
               <Button
                 disabled={busy !== null}
                 fullWidth
-                sx={{ minHeight: 56 }}
                 variant="contained"
                 onClick={validateIp}
               >
@@ -380,6 +430,7 @@ function GoodWeConfig(props: {
                 label={t("Discovery subnet")}
                 placeholder="192.168.1.0/24"
                 value={props.config.discoverySubnet}
+                variant="standard"
                 onChange={(event) =>
                   props.updateConfig("discoverySubnet", event.target.value)
                 }
@@ -389,7 +440,6 @@ function GoodWeConfig(props: {
               <Button
                 disabled={busy !== null}
                 fullWidth
-                sx={{ minHeight: 56 }}
                 variant="contained"
                 onClick={discoverInverters}
               >
@@ -415,6 +465,7 @@ function GoodWeConfig(props: {
                 slotProps={{ htmlInput: { min: 10, max: 3600 } }}
                 type="number"
                 value={props.config.pollCycle}
+                variant="standard"
                 onChange={(event) =>
                   props.updateConfig(
                     "pollCycle",
@@ -434,6 +485,7 @@ function GoodWeConfig(props: {
                 slotProps={{ htmlInput: { min: 1000, max: 30000 } }}
                 type="number"
                 value={props.config.timeoutMs}
+                variant="standard"
                 onChange={(event) =>
                   props.updateConfig(
                     "timeoutMs",
@@ -453,6 +505,7 @@ function GoodWeConfig(props: {
                 slotProps={{ htmlInput: { min: 0, max: 5 } }}
                 type="number"
                 value={props.config.retries}
+                variant="standard"
                 onChange={(event) =>
                   props.updateConfig(
                     "retries",
@@ -464,9 +517,9 @@ function GoodWeConfig(props: {
           </Grid>
         </Box>
       ) : (
-        <FormGroup sx={{ py: 2 }}>
+        <FormGroup sx={{ p: 1, py: 2 }}>
           {ADVANCED_FIELDS.map((field) => (
-            <Box key={field.key} sx={{ mb: 1.5 }}>
+            <Box key={field.key} sx={{ mb: 1 }}>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -477,16 +530,26 @@ function GoodWeConfig(props: {
                   />
                 }
                 label={t(field.label)}
+                sx={{ mb: 0 }}
               />
-              <FormHelperText sx={{ ml: 4 }}>{t(field.help)}</FormHelperText>
+              <FormHelperText sx={{ ml: 4, mt: -0.5 }}>
+                {t(field.help)}
+              </FormHelperText>
             </Box>
           ))}
         </FormGroup>
       )}
 
       <Snackbar
+        anchorOrigin={{ horizontal: "left", vertical: "bottom" }}
         autoHideDuration={busy ? null : 6000}
         open={snackbarMessage !== ""}
+        sx={{
+          bottom: {
+            xs: `${FOOTER_HEIGHT.xs + 8}px`,
+            sm: `${FOOTER_HEIGHT.sm + 8}px`,
+          },
+        }}
         onClose={() => {
           if (!busy) {
             setMessage("");
@@ -653,6 +716,14 @@ class GoodWeApp extends GenericApp<GenericAppProps, GenericAppState> {
     this.updateNativeValue(key, value);
   };
 
+  private loadConfig = (config: Record<string, unknown>): void => {
+    this.onLoadConfig(normalizeConfig(config));
+  };
+
+  private showConfigError = (text: string): void => {
+    this.showError(text);
+  };
+
   render(): React.JSX.Element {
     if (!this.state.loaded) {
       return <Loader themeType={this.state.themeType} />;
@@ -664,7 +735,17 @@ class GoodWeApp extends GenericApp<GenericAppProps, GenericAppState> {
       <ThemeProvider theme={this.state.theme}>
         <CssBaseline />
         <GoodWeConfig
+          common={
+            (this.common as Record<string, unknown> | null) ?? {
+              icon: "goodwe.png",
+              name: "goodwe",
+              readme: README_URL,
+            }
+          }
           config={config}
+          instance={this.instance}
+          onError={this.showConfigError}
+          onLoadConfig={this.loadConfig}
           sendCommand={this.sendCommand}
           updateConfig={this.updateConfig}
         />

@@ -10,6 +10,10 @@ export default defineConfig({
     emptyOutDir: false,
     assetsDir: "assets",
     rollupOptions: {
+      treeshake: {
+        moduleSideEffects: (id) =>
+          id.includes("@iobroker/adapter-react-v5") ? false : undefined,
+      },
       output: {
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",
