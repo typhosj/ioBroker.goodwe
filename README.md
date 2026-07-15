@@ -149,6 +149,8 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 
 [Older changelogs can be found here](CHANGELOG_OLD.md)
 
+[Older changelogs can be found there](CHANGELOG_OLD.md)
+
 ## License
 MIT License
 
