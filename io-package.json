@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "goodwe",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "news": {
+      "1.1.1": {
+        "en": "Migrated the admin configuration page to a React based UI and added translations. Requires admin >= 7.8.23 now. Excluded CHANGELOG_OLD.md from the npm package.",
+        "de": "Admin-Konfigurationsseite auf eine React-basierte UI migriert und Übersetzungen ergänzt. Adapter benötigt jetzt admin >= 7.8.23. CHANGELOG_OLD.md aus dem npm-Paket ausgeschlossen.",
+        "ru": "Страница конфигурации администратора перенесена в пользовательский интерфейс на основе React и добавлены переводы. Сейчас требуется администратор >= 7.8.23. Исключен CHANGELOG_OLD.md из пакета npm.",
+        "pt": "Migrei a página de configuração do administrador para uma UI baseada em React e adicionei traduções. Requer administrador >= 7.8.23 agora. CHANGELOG_OLD.md excluído do pacote npm.",
+        "nl": "De beheerdersconfiguratiepagina gemigreerd naar een op React gebaseerde gebruikersinterface en vertalingen toegevoegd. Vereist nu beheerder >= 7.8.23. CHANGELOG_OLD.md is uitgesloten van het npm-pakket.",
+        "fr": "Migration de la page de configuration de l'administrateur vers une interface utilisateur basée sur React et ajout de traductions. Nécessite admin >= 7.8.23 maintenant. CHANGELOG_OLD.md exclu du package npm.",
+        "it": "Migrata la pagina di configurazione dell'amministratore a un'interfaccia utente basata su React e aggiunte traduzioni. Richiede admin >= 7.8.23 ora. Escluso CHANGELOG_OLD.md dal pacchetto npm.",
+        "es": "Se migró la página de configuración de administrador a una interfaz de usuario basada en React y se agregaron traducciones. Requiere administrador >= 7.8.23 ahora. Se excluyó CHANGELOG_OLD.md del paquete npm.",
+        "pl": "Przeprowadzono migrację strony konfiguracji administratora do interfejsu użytkownika opartego na React i dodano tłumaczenia. Wymaga teraz administratora >= 7.8.23. Wykluczono CHANGELOG_OLD.md z pakietu npm.",
+        "uk": "Сторінку конфігурації адміністратора перенесено на інтерфейс користувача на основі React і додано переклади. Зараз потрібен admin >= 7.8.23. CHANGELOG_OLD.md виключено з пакета npm.",
+        "zh-cn": "将管理配置页面迁移到基于 React 的 UI 并添加了翻译。现在需要 admin >= 7.8.23。从 npm 包中排除了 CHANGELOG_OLD.md。"
+      },
       "1.1.0": {
         "en": "Migrated adapter runtime to TypeScript and Node.js 22\nReplaced additional mode text states with enum labels on the numeric mode states",
         "de": "Adapter-Laufzeit auf TypeScript und Node.js 22 migriert\nZusätzliche Modus-Text-States durch Enum-Beschriftungen an den numerischen Modus-States ersetzt",

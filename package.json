@@ -1,6 +1,6 @@
 {
   "name": "iobroker.goodwe",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Communication with GoodWe Inverter ET/EH/BH/BT Series",
   "author": {
     "name": "Thomas Schönberger",
@@ -70,7 +70,6 @@
     "admin{,/!(src)/**}/!(tsconfig|tsconfig.*|.eslintrc).json",
     "admin{,/!(src)/**}/*.{html,css,png,svg,jpg,js}",
     "build/",
-    "CHANGELOG_OLD.md",
     "io-package.json",
     "LICENSE"
   ],
