@@ -224,9 +224,6 @@ class GoodWeUdp {
             this.#status = _a.ConStatus.Offline;
             this.log.warn(`UDP socket error: ${error.message}`);
         });
-        // the next line of code should be deleted. I think it was probably introduced to silence the ever increasing listeners on this.#client
-        // because of the .on()-calls which installs a listener on each invocation, but does not remove it.
-        // this.#client.setMaxListeners(0);
     }
     destructor() {
         for (const request of this.#pendingRequests.splice(0)) {

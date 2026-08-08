@@ -61,16 +61,10 @@ class Goodwe extends utils.Adapter {
         this.on("message", this.onMessage.bind(this));
         this.on("unload", this.onUnload.bind(this));
     }
-    InitializeServices() {
-        this.inverter = new GoodWe_1.GoodWeUdp(this.log);
-        this.states = new states_1.default(this, this.inverter);
-        this.pollScheduler = new scheduler_1.GoodWePollScheduler(this, this.inverter, this.states, 1000);
-    }
     /**
      * Is called when databases are connected and adapter received configuration.
      */
     async onReady() {
-        this.InitializeServices();
         await this.states.InitializeObjects();
         await this.states.SetConnection(false);
         const configuredIp = (0, goodwe_discovery_1.extractIpv4Address)(this.config.ipAddr);

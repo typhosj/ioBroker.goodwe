@@ -41,22 +41,10 @@ class Goodwe extends utils.Adapter {
     this.on("unload", this.onUnload.bind(this));
   }
 
-  InitializeServices(): void {
-    this.inverter = new GoodWeUdp(this.log);
-    this.states = new GoodWeStateManager(this, this.inverter);
-    this.pollScheduler = new GoodWePollScheduler(
-      this,
-      this.inverter,
-      this.states,
-      1000,
-    );
-  }
-
   /**
    * Is called when databases are connected and adapter received configuration.
    */
   async onReady(): Promise<void> {
-    this.InitializeServices();
     await this.states.InitializeObjects();
     await this.states.SetConnection(false);
 

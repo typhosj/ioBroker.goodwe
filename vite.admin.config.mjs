@@ -10,6 +10,7 @@ export default defineConfig({
     emptyOutDir: false,
     assetsDir: "assets",
     rollupOptions: {
+      input: "src-admin/index_m.html",
       treeshake: {
         moduleSideEffects: (id) =>
           id.includes("@iobroker/adapter-react-v5") ? false : undefined,
