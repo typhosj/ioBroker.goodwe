@@ -50,7 +50,8 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 | `RunningData.*Energy*` | Daily and total energy counters |
 | `RunningData.*Mode`, `RunningData.GridMode`, `RunningData.WorkMode`, `RunningData.OperationMode` | Numeric mode states with ioBroker enum labels |
 | `RunningData.ErrorMessageActive` | Active inverter error bits as text |
-| `RunningData.DiagStatusActive` | Active diagnostic bits as text |
+| `RunningData.DiagStatusActive` | Active diagnostic bits as text, decoded from `RunningData.DiagStatusL` |
+| `RunningData.DiagStatusH` | High word of the diagnostic status, kept as a raw number because the GoodWe protocol defines no bits for it |
 | `ExtComData.*` | Smart meter and communication data |
 | `BMSInfo.*` | BMS status, SOC, SOH, error and warning data |
 | `BMSInfo.ErrorCodeActive` | Decoded BMS alarm bitfield |
