@@ -104,8 +104,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-
-### **WORK IN PROGRESS**
+### 1.1.2 (2026-08-27)
 - Fixed unsigned 32 bit registers being reported as negative values (for example `RunningData.DiagStatusL` and `RunningData.ErrorMessage`).
 - Boolean options are normalized at adapter start, so a string typed switch no longer disables an optional register group and deletes its states.
 - Discarded late UDP answers after a timeout; they could be parsed as the answer of the next register group with the same length.
@@ -141,22 +140,6 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 * Cleaned up legacy hard-coded decoder code in favor of the register map
 * Finalized selected state units and roles
 * Expanded README with state overview and troubleshooting
-
-### 1.0.7 (2026-06-23)
-* Hardened UDP communication with async request handling, timeout and retry support
-* Added specification based register map and extended GoodWe register groups
-* Added decoded status and bitfield states for inverter, BMS, DRM and diagnostics
-* Added adapter options for request timeout, retries and per-group extended register polling
-* Added optional cleanup for disabled extended register states
-* Added register-map and status-decoding tests
-
-### 1.0.6 (2025-04-02)
-* (ty) updated dependencies
-* (ty) extended logging
-
-### 1.0.5 (2025-03-14)
-* (ty) Fixed EnergyDayDischarge
-* (mrx8) fixed memory leak
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
