@@ -3,7 +3,11 @@
 import assert from "node:assert/strict";
 import EventEmitter from "node:events";
 import proxyquire from "proxyquire";
-import { clampPollCycle, PollScheduler } from "../src/scheduler";
+import {
+  clampPollCycle,
+  GoodWePollScheduler,
+  PollScheduler,
+} from "../src/scheduler";
 import GoodWeStateManager from "../src/states";
 import {
   optionalGroupConfigs,
@@ -18,8 +22,14 @@ import {
   valueStates,
 } from "../src/lib/status-definitions";
 import {
+  booleanDefaults,
+  normalizeBoolean,
+  normalizeBooleanConfig,
+} from "../src/lib/config";
+import {
   buildIdInfoRequest,
   clampDiscoveryConcurrency,
+  clampProbeTimeout,
   extractIpv4Address,
   formatInverterOption,
   getIpv4CandidatesFromSubnet,
@@ -655,7 +665,6 @@ describe("poll scheduler", () => {
     const adapter: SchedulerAdapterLike = {
       config: testConfig,
       log: testLogger,
-      setStateChangedAsync: () => Promise.resolve(undefined),
       setTimeout: (callback: () => void, _ms: number) => {
         timeoutCallback = callback;
         return timer;
@@ -721,7 +730,7 @@ function writeAscii(
   buffer.write(value.slice(0, length), start, length, "ascii");
 }
 
-function createInverter(socket: FakeSocket): GoodWeUdp {
+function createInverter(socket: EventEmitter): GoodWeUdp {
   const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
     "node:dgram": {
       createSocket: () => socket,
@@ -815,4 +824,269 @@ function calculateCrc16(
   }
 
   return ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
+}
+
+describe("runtime config normalization", () => {
+  it("normalizes boolean options from booleans, strings and numbers", () => {
+    assert.equal(normalizeBoolean(true, false), true);
+    assert.equal(normalizeBoolean(false, true), false);
+    assert.equal(normalizeBoolean("true", false), true);
+    assert.equal(normalizeBoolean("FALSE", true), false);
+    assert.equal(normalizeBoolean("1", false), true);
+    assert.equal(normalizeBoolean("0", true), false);
+    assert.equal(normalizeBoolean("", true), false);
+    assert.equal(normalizeBoolean(1, false), true);
+    assert.equal(normalizeBoolean(0, true), false);
+  });
+
+  it("falls back to the io-package default for missing and invalid values", () => {
+    assert.equal(normalizeBoolean(undefined, true), true);
+    assert.equal(normalizeBoolean(null, false), false);
+    assert.equal(normalizeBoolean("maybe", true), true);
+    assert.equal(normalizeBoolean({}, false), false);
+  });
+
+  it("normalizes a stored native config in place", () => {
+    const config: Record<string, unknown> = {
+      pollExtended: "false",
+      pollSimccid: "true",
+      pollBmsDetail: 1,
+    };
+
+    normalizeBooleanConfig(config);
+
+    assert.equal(config.pollExtended, false);
+    assert.equal(config.pollSimccid, true);
+    assert.equal(config.pollBmsDetail, true);
+    assert.equal(config.pollFlashInfo, true);
+    assert.equal(config.pollPowerLimit, false);
+  });
+
+  it("covers every optional register group switch", () => {
+    for (const configKey of Object.values(optionalGroupConfigs)) {
+      assert.equal(configKey in booleanDefaults, true, configKey);
+    }
+  });
+
+  it("keeps optional groups enabled for string typed switches", () => {
+    const manager = (config: Record<string, unknown>): GoodWeStateManager =>
+      new GoodWeStateManager(
+        {
+          config: config as unknown as ioBroker.AdapterConfig,
+          log: testLogger,
+          setObjectNotExistsAsync: () => Promise.resolve(undefined),
+          extendObjectAsync: () => Promise.resolve(undefined),
+          getObjectAsync: () => Promise.resolve(undefined),
+          delObjectAsync: () => Promise.resolve(undefined),
+          setStateChangedAsync: () => Promise.resolve(undefined),
+        },
+        {} as unknown as GoodWeUdp,
+      );
+
+    assert.equal(
+      manager({ ...testConfig, pollFlashInfo: "true" }).IsRegisterGroupEnabled(
+        "flashInfo",
+      ),
+      true,
+    );
+    assert.equal(
+      manager({ ...testConfig, pollFlashInfo: "false" }).IsRegisterGroupEnabled(
+        "flashInfo",
+      ),
+      false,
+    );
+    assert.equal(
+      manager({
+        ...testConfig,
+        pollExtended: "false",
+        pollFlashInfo: true,
+      }).IsRegisterGroupEnabled("flashInfo"),
+      false,
+    );
+  });
+});
+
+describe("unload safety", () => {
+  it("stops writing states once the adapter unloaded", async () => {
+    const writes: StateWrite[] = [];
+    const manager = new GoodWeStateManager(
+      {
+        config: testConfig,
+        log: testLogger,
+        setObjectNotExistsAsync: () => Promise.resolve(undefined),
+        extendObjectAsync: () => Promise.resolve(undefined),
+        getObjectAsync: () => Promise.resolve(undefined),
+        delObjectAsync: () => Promise.resolve(undefined),
+        setStateChangedAsync: (
+          id: string,
+          value: ioBroker.StateValue,
+          ack: boolean,
+        ) => {
+          writes.push({ id, value, ack });
+          return Promise.resolve(undefined);
+        },
+      },
+      {} as unknown as GoodWeUdp,
+    );
+
+    await manager.SetConnection(true);
+    manager.Stop();
+    await manager.SetConnection(false);
+
+    assert.deepEqual(writes, [
+      { id: "info.connection", value: true, ack: true },
+    ]);
+  });
+});
+
+describe("reconnect backoff", () => {
+  it("stops hammering the inverter while it stays offline", async () => {
+    let idInfoCalls = 0;
+    const inverter = {
+      Status: false,
+      ReadIdInfo: () => {
+        idInfoCalls++;
+        return Promise.resolve(false);
+      },
+    } as unknown as GoodWeUdp;
+    const states = {
+      SetConnection: () => Promise.resolve(undefined),
+    } as unknown as GoodWeStateManager;
+    const scheduler = new GoodWePollScheduler(
+      {
+        config: testConfig,
+        log: testLogger,
+        setTimeout: () => 1 as ioBroker.Timeout,
+        clearTimeout: noop,
+      },
+      inverter,
+      states,
+      1000,
+    );
+
+    for (let tick = 0; tick < 8; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.equal(idInfoCalls, 3);
+  });
+});
+
+describe("UDP frame safety", () => {
+  it("decodes unsigned 32 bit registers above 2^31", async () => {
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(registerGroups.runningData, (response) => {
+        response.writeUInt32BE(0xffffffff, 5 + (35220 - 35100) * 2);
+      });
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(inverter.RunningData.DiagStatusL, 4294967295);
+  });
+
+  it("discards a late answer that matches the next request", async function () {
+    this.timeout(10000);
+
+    const staleFrame = buildRegisterResponse(
+      registerGroups.flashInfo,
+      (response) => {
+        response.writeUInt16BE(0x1234, 5);
+      },
+    );
+    const socket = new StaleAnswerSocket(buildIdInfoResponse(), staleFrame);
+    const inverter = createInverter(socket);
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    // flashInfo stays unanswered and times out.
+    assert.equal(
+      await inverter.ReadGroup("flashInfo", { optional: true }),
+      false,
+    );
+    // powerLimit reads the same number of registers, so the late flashInfo
+    // answer matches its matcher and must not be accepted.
+    assert.equal(
+      await inverter.ReadGroup("powerLimit", { optional: true }),
+      false,
+    );
+    assert.deepEqual(inverter.PowerLimit, {});
+  });
+});
+
+describe("BMS status high words", () => {
+  it("keeps the reserved high words out of the decoded alarm text", () => {
+    const states = getDecodedBmsStatuses(
+      {
+        ErrorCode: 0b11,
+        // Bit 16~31 of both codes are reserved in GoodWe API v1.7
+        // (tables 8-7 and 8-8), so a set high word must not change the text.
+        ErrorCodeH: 0xffff,
+        WarningCodeL: 0b1,
+        WarningCodeH: 0xffff,
+        DRMStatus: 0,
+      },
+      true,
+    );
+
+    assert.equal(
+      states.find((state) => state.id === "BMSInfo.ErrorCodeActive")?.value,
+      "Charging over-voltage2, Discharging under-voltage2",
+    );
+    assert.equal(
+      states.find((state) => state.id === "BMSInfo.WarningCodeActive")?.value,
+      "Charging over-voltage1",
+    );
+  });
+});
+
+describe("admin message limits", () => {
+  it("clamps probe timeouts from admin messages", () => {
+    assert.equal(clampProbeTimeout(undefined), 700);
+    assert.equal(clampProbeTimeout("not a number"), 700);
+    assert.equal(clampProbeTimeout(0), 700);
+    assert.equal(clampProbeTimeout(1), 100);
+    assert.equal(clampProbeTimeout(1e9), 10000);
+    assert.equal(clampProbeTimeout(1500.9), 1500);
+  });
+});
+
+class StaleAnswerSocket extends EventEmitter {
+  private readonly idInfoFrame: Buffer;
+  private readonly staleFrame: Buffer;
+  private sendCount = 0;
+
+  constructor(idInfoFrame: Buffer, staleFrame: Buffer) {
+    super();
+    this.idInfoFrame = idInfoFrame;
+    this.staleFrame = staleFrame;
+  }
+
+  send(
+    _buffer: Buffer,
+    _offset: number,
+    _length: number,
+    _port: number,
+    _ip: string,
+    callback: (error?: Error) => void,
+  ): void {
+    callback(undefined);
+    this.sendCount++;
+
+    if (this.sendCount === 1) {
+      process.nextTick(() => this.emit("message", this.idInfoFrame));
+      return;
+    }
+
+    if (this.sendCount === 3) {
+      process.nextTick(() => this.emit("message", this.staleFrame));
+    }
+  }
+
+  close(): void {}
 }

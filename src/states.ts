@@ -1,5 +1,6 @@
 "use strict";
 
+import { booleanDefaults, normalizeBoolean } from "./lib/config";
 import {
   optionalGroupConfigs,
   type RegisterGroup,
@@ -53,10 +54,29 @@ const legacyModeTextStates = [
 class GoodWeStateManager {
   private adapter: StateAdapter;
   private inverter: GoodWeUdp;
+  private stopped = false;
 
   constructor(adapter: StateAdapter, inverter: GoodWeUdp) {
     this.adapter = adapter;
     this.inverter = inverter;
+  }
+
+  /**
+   * Blocks further state writes once the adapter unloads.
+   *
+   * A poll that is still in flight when onUnload() runs would otherwise write
+   * states after the adapter reported shutdown.
+   */
+  Stop(): void {
+    this.stopped = true;
+  }
+
+  private async Write(id: string, value: ioBroker.StateValue): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
+
+    await this.adapter.setStateChangedAsync(id, value, true);
   }
 
   async InitializeObjects(): Promise<void> {
@@ -69,7 +89,7 @@ class GoodWeStateManager {
   }
 
   async SetConnection(value: boolean): Promise<void> {
-    await this.adapter.setStateChangedAsync("info.connection", value, true);
+    await this.Write("info.connection", value);
   }
 
   IsRegisterGroupEnabled(groupName: string): boolean {
@@ -79,9 +99,13 @@ class GoodWeStateManager {
       return true;
     }
 
+    // Normalize here as well: a mistyped switch does not only disable the
+    // group, it makes CleanupDisabledOptionalStates() delete its objects.
+    const config = this.adapter.config as Record<string, unknown>;
+
     return (
-      this.adapter.config.pollExtended !== false &&
-      (this.adapter.config as Record<string, unknown>)[configKey] === true
+      normalizeBoolean(config.pollExtended, true) &&
+      normalizeBoolean(config[configKey], booleanDefaults[configKey] ?? false)
     );
   }
 
@@ -109,7 +133,7 @@ class GoodWeStateManager {
     for (const channel of channels) {
       await this.adapter.setObjectNotExistsAsync(channel, {
         type: "channel",
-        common: { name: channel.split(".").pop() },
+        common: { name: channel.split(".").pop() ?? channel },
         native: {},
       });
     }
@@ -123,7 +147,7 @@ class GoodWeStateManager {
         await this.adapter.setObjectNotExistsAsync(item.state, {
           type: "state",
           common: {
-            name: item.state.split(".").pop(),
+            name: item.state.split(".").pop() ?? item.state,
             type: item.type === TYPE.STRING ? "string" : "number",
             role: item.type === TYPE.STRING ? "text" : item.role,
             read: true,
@@ -202,7 +226,7 @@ class GoodWeStateManager {
 
       const group = registerGroups[groupName];
 
-      for (const item of registerGroups[groupName].entries) {
+      for (const item of group.entries) {
         const object = await this.adapter.getObjectAsync(item.state);
 
         if (object) {
@@ -304,15 +328,23 @@ class GoodWeStateManager {
   }
 
   async UpdateStatesFromRegisterMap(group: RegisterGroup): Promise<void> {
+    const getter = this.GroupGetter(group);
+
+    if (getter === "") {
+      this.adapter.log.error(
+        `No inverter model getter for register group ${group.name}`,
+      );
+      return;
+    }
+
     const source = (this.inverter as unknown as Record<string, unknown>)[
-      this.GroupGetter(group)
+      getter
     ];
 
     for (const item of group.entries) {
-      await this.adapter.setStateChangedAsync(
+      await this.Write(
         item.state,
         this.GetStateValue(item.state, item.model, source),
-        true,
       );
     }
   }
@@ -379,9 +411,16 @@ class GoodWeStateManager {
     return value as ioBroker.StateValue;
   }
 
+  async UpdateDerivedRunningStates(): Promise<void> {
+    await this.Write(
+      "RunningData.TotalPowerPv",
+      this.inverter.RunningData.TotalPowerPv,
+    );
+  }
+
   async UpdateDecodedRunningStatuses(): Promise<void> {
     for (const state of getDecodedRunningStatuses(this.inverter.RunningData)) {
-      await this.adapter.setStateChangedAsync(state.id, state.value, true);
+      await this.Write(state.id, state.value);
     }
   }
 
@@ -390,10 +429,9 @@ class GoodWeStateManager {
       this.inverter.BmsInfo,
       this.IsRegisterGroupEnabled("bmsInfoExtended"),
     )) {
-      await this.adapter.setStateChangedAsync(state.id, state.value, true);
+      await this.Write(state.id, state.value);
     }
   }
 }
 
 export default GoodWeStateManager;
-module.exports = GoodWeStateManager;

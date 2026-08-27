@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleAdapterMessage = handleAdapterMessage;
+const errors_1 = require("../lib/errors");
 const goodwe_discovery_1 = require("../lib/goodwe-discovery");
 async function handleAdapterMessage(adapter, obj) {
     if (!obj?.command) {
@@ -25,7 +26,7 @@ async function handleAdapterMessage(adapter, obj) {
                     return;
                 }
                 const result = await (0, goodwe_discovery_1.probeGoodWeInverter)(validation.ip, {
-                    timeoutMs: Number(obj.message?.timeoutMs) || 1000,
+                    timeoutMs: (0, goodwe_discovery_1.clampProbeTimeout)(obj.message?.timeoutMs),
                 });
                 respond({
                     valid: true,
@@ -40,7 +41,7 @@ async function handleAdapterMessage(adapter, obj) {
                 const result = await (0, goodwe_discovery_1.discoverGoodWeInverters)({
                     ip: getConfiguredIp(adapter, obj.message?.ip),
                     subnet: getConfiguredSubnet(adapter, obj.message?.subnet),
-                    timeoutMs: Number(obj.message?.timeoutMs) || 700,
+                    timeoutMs: (0, goodwe_discovery_1.clampProbeTimeout)(obj.message?.timeoutMs),
                     concurrency: Number(obj.message?.concurrency) || undefined,
                 });
                 respond(result);
@@ -51,7 +52,7 @@ async function handleAdapterMessage(adapter, obj) {
         }
     }
     catch (error) {
-        respond({ error: error.message ?? String(error) });
+        respond({ error: (0, errors_1.errorMessage)(error) });
     }
 }
 function getConfiguredIp(adapter, messageIp) {

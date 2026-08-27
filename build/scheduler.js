@@ -2,7 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PollScheduler = exports.GoodWePollScheduler = void 0;
 exports.clampPollCycle = clampPollCycle;
+const errors_1 = require("./lib/errors");
+const config_1 = require("./lib/config");
 const register_map_1 = require("./lib/register-map");
+const ReconnectDelay = {
+    // Skipped 1s ticks between reconnect attempts while the inverter is offline.
+    Max: 60,
+};
 const PollCycle = {
     Default: 10,
     Min: 10,
@@ -38,7 +44,7 @@ class PollScheduler {
             await this.poll();
         }
         catch (error) {
-            this.adapter.log.warn(`poll scheduler failed: ${error.message ?? error}`);
+            this.adapter.log.warn(`poll scheduler failed: ${(0, errors_1.errorMessage)(error)}`);
         }
         finally {
             if (this.active) {
@@ -59,6 +65,8 @@ class GoodWePollScheduler {
     inverter;
     states;
     cycleCnt = 0;
+    reconnectDelay = 0;
+    reconnectSkips = 0;
     scheduler;
     constructor(adapter, inverter, states, intervalMs) {
         this.adapter = adapter;
@@ -76,8 +84,16 @@ class GoodWePollScheduler {
         try {
             if (this.inverter.Status == false) {
                 this.cycleCnt = 0;
+                if (this.reconnectSkips > 0) {
+                    this.reconnectSkips--;
+                    return;
+                }
                 const success = await this.inverter.ReadIdInfo();
                 await this.states.SetConnection(success);
+                this.reconnectDelay = success
+                    ? 0
+                    : Math.min(ReconnectDelay.Max, Math.max(1, this.reconnectDelay * 2));
+                this.reconnectSkips = this.reconnectDelay;
             }
             else {
                 switch (this.cycleCnt) {
@@ -94,7 +110,7 @@ class GoodWePollScheduler {
                         await this.UpdateBmsInfo();
                         break;
                     case 9:
-                        if (this.adapter.config.pollExtended !== false) {
+                        if ((0, config_1.normalizeBoolean)(this.adapter.config.pollExtended, true)) {
                             await this.UpdateAdditionalRegisterGroups();
                         }
                         break;
@@ -106,7 +122,7 @@ class GoodWePollScheduler {
             }
         }
         catch (error) {
-            this.adapter.log.warn(`poll cycle failed: ${error.message ?? error}`);
+            this.adapter.log.warn(`poll cycle failed: ${(0, errors_1.errorMessage)(error)}`);
             await this.states.SetConnection(false);
         }
     }
@@ -127,7 +143,7 @@ class GoodWePollScheduler {
         }
         await this.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups.runningData);
         await this.states.UpdateDecodedRunningStatuses();
-        await this.adapter.setStateChangedAsync("RunningData.TotalPowerPv", this.inverter.RunningData.TotalPowerPv, true);
+        await this.states.UpdateDerivedRunningStates();
     }
     async UpdateExtComData() {
         const success = await this.inverter.ReadGroup("extComData");

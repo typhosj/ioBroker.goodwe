@@ -2,21 +2,21 @@
 
 import dgram from "node:dgram";
 import os from "node:os";
+import { errorMessage } from "./errors";
 
 const GOODWE_PORT = 8899;
 const DEFAULT_PROBE_TIMEOUT_MS = 700;
 const DEFAULT_DISCOVERY_CONCURRENCY = 32;
+const MIN_PROBE_TIMEOUT_MS = 100;
+const MAX_PROBE_TIMEOUT_MS = 10000;
 
 interface LoggerLike {
   debug?: (message: string) => void;
 }
 
-interface IpValidation {
-  valid: boolean;
-  reason?: string;
-  ip?: string;
-  octets?: number[];
-}
+type IpValidation =
+  | { valid: true; ip: string; octets: number[] }
+  | { valid: false; reason: string };
 
 interface IdInfo {
   firmwareVersion: string;
@@ -195,7 +195,8 @@ function readUInt(data: Uint8Array, start: number, length: number): number {
   let value = 0;
 
   for (let index = start; index < start + length; index++) {
-    value = (value << 8) + data[index];
+    // Multiply instead of "<< 8": the shift would truncate to int32.
+    value = value * 256 + data[index];
   }
 
   return value;
@@ -216,7 +217,7 @@ function probeGoodWeInverter(
   }
 
   const port = options.port ?? GOODWE_PORT;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const timeoutMs = clampProbeTimeout(options.timeoutMs);
   const request = buildIdInfoRequest();
 
   return new Promise((resolve) => {
@@ -241,7 +242,7 @@ function probeGoodWeInverter(
         client.close();
       } catch (error) {
         options.log?.debug?.(
-          `UDP discovery socket close failed: ${error.message}`,
+          `UDP discovery socket close failed: ${errorMessage(error)}`,
         );
       }
       resolve(result);
@@ -272,7 +273,7 @@ function probeGoodWeInverter(
       });
     });
 
-    client.send(request, port, validation.ip, (error?: Error) => {
+    client.send(request, port, validation.ip, (error: Error | null) => {
       if (error) {
         finish({
           ip: validation.ip,
@@ -287,7 +288,7 @@ function probeGoodWeInverter(
 async function discoverGoodWeInverters(
   options: DiscoveryOptions = {},
 ): Promise<{ searched: number; found: ProbeResult[] }> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const timeoutMs = clampProbeTimeout(options.timeoutMs);
   const concurrency = clampDiscoveryConcurrency(options.concurrency);
   const candidates = getDiscoveryCandidates(options);
   const found = [];
@@ -309,6 +310,15 @@ async function discoverGoodWeInverters(
     searched: candidates.length,
     found,
   };
+}
+
+function clampProbeTimeout(value: unknown): number {
+  const timeoutMs = Number(value) || DEFAULT_PROBE_TIMEOUT_MS;
+
+  return Math.min(
+    MAX_PROBE_TIMEOUT_MS,
+    Math.max(MIN_PROBE_TIMEOUT_MS, Math.floor(timeoutMs)),
+  );
 }
 
 function clampDiscoveryConcurrency(value: unknown): number {
@@ -352,7 +362,7 @@ function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
   const validation = validateIpv4Address(options.ip);
 
   if (validation.valid) {
-    subnets.add(getSubnetFromOctets(validation.octets ?? []));
+    subnets.add(getSubnetFromOctets(validation.octets));
   }
 
   for (const entries of Object.values(os.networkInterfaces())) {
@@ -360,7 +370,7 @@ function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
       const validation = validateIpv4Address(entry.address);
 
       if (entry.family === "IPv4" && !entry.internal && validation.valid) {
-        subnets.add(getSubnetFromOctets(validation.octets ?? []));
+        subnets.add(getSubnetFromOctets(validation.octets));
       }
     }
   }
@@ -402,6 +412,7 @@ export {
   GOODWE_PORT,
   buildIdInfoRequest,
   clampDiscoveryConcurrency,
+  clampProbeTimeout,
   discoverGoodWeInverters,
   extractIpv4Address,
   formatInverterOption,

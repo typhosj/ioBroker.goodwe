@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": ".",
-    "outDir": "build-test",
+    "outDir": "node_modules/.cache/goodwe-build-test",
     "types": ["node", "mocha"]
   },
   "include": ["src/**/*.ts", "test/main.test.ts", "src/lib/**/*.d.ts"],

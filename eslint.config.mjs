@@ -18,7 +18,6 @@ export default [
       ".vscode/",
       "admin/assets/",
       "build/",
-      "build-test/",
       "**/*.test.js",
       "test/**/*.js",
       "**/adapter-config.d.ts",

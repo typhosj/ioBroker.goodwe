@@ -1,8 +1,15 @@
 "use strict";
 
+import { errorMessage } from "./lib/errors";
+import { normalizeBoolean } from "./lib/config";
 import { optionalGroupConfigs, registerGroups } from "./lib/register-map";
 import type { GoodWeUdp } from "./GoodWe/GoodWe";
 import type GoodWeStateManager from "./states";
+
+const ReconnectDelay = {
+  // Skipped 1s ticks between reconnect attempts while the inverter is offline.
+  Max: 60,
+};
 
 const PollCycle = {
   Default: 10,
@@ -13,13 +20,11 @@ const PollCycle = {
 interface SchedulerAdapter {
   config: ioBroker.AdapterConfig;
   log: ioBroker.Logger;
-  setTimeout: (callback: () => void, ms: number) => ioBroker.Timeout;
+  setTimeout: (
+    callback: () => void,
+    ms: number,
+  ) => ioBroker.Timeout | undefined;
   clearTimeout: (timeout: ioBroker.Timeout) => void;
-  setStateChangedAsync: (
-    id: string,
-    state: ioBroker.StateValue,
-    ack: boolean,
-  ) => Promise<unknown>;
 }
 
 class PollScheduler {
@@ -61,7 +66,7 @@ class PollScheduler {
     try {
       await this.poll();
     } catch (error) {
-      this.adapter.log.warn(`poll scheduler failed: ${error.message ?? error}`);
+      this.adapter.log.warn(`poll scheduler failed: ${errorMessage(error)}`);
     } finally {
       if (this.active) {
         this.timer = this.adapter.setTimeout(() => {
@@ -82,6 +87,8 @@ class GoodWePollScheduler {
   private inverter: GoodWeUdp;
   private states: GoodWeStateManager;
   private cycleCnt = 0;
+  private reconnectDelay = 0;
+  private reconnectSkips = 0;
   private scheduler: PollScheduler;
 
   constructor(
@@ -108,8 +115,18 @@ class GoodWePollScheduler {
     try {
       if (this.inverter.Status == false) {
         this.cycleCnt = 0;
+
+        if (this.reconnectSkips > 0) {
+          this.reconnectSkips--;
+          return;
+        }
+
         const success = await this.inverter.ReadIdInfo();
         await this.states.SetConnection(success);
+        this.reconnectDelay = success
+          ? 0
+          : Math.min(ReconnectDelay.Max, Math.max(1, this.reconnectDelay * 2));
+        this.reconnectSkips = this.reconnectDelay;
       } else {
         switch (this.cycleCnt) {
           case 1:
@@ -129,7 +146,7 @@ class GoodWePollScheduler {
             break;
 
           case 9:
-            if (this.adapter.config.pollExtended !== false) {
+            if (normalizeBoolean(this.adapter.config.pollExtended, true)) {
               await this.UpdateAdditionalRegisterGroups();
             }
             break;
@@ -142,7 +159,7 @@ class GoodWePollScheduler {
         this.cycleCnt++;
       }
     } catch (error) {
-      this.adapter.log.warn(`poll cycle failed: ${error.message ?? error}`);
+      this.adapter.log.warn(`poll cycle failed: ${errorMessage(error)}`);
       await this.states.SetConnection(false);
     }
   }
@@ -169,11 +186,7 @@ class GoodWePollScheduler {
 
     await this.states.UpdateStatesFromRegisterMap(registerGroups.runningData);
     await this.states.UpdateDecodedRunningStatuses();
-    await this.adapter.setStateChangedAsync(
-      "RunningData.TotalPowerPv",
-      this.inverter.RunningData.TotalPowerPv,
-      true,
-    );
+    await this.states.UpdateDerivedRunningStates();
   }
 
   async UpdateExtComData(): Promise<void> {

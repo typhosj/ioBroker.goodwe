@@ -42,6 +42,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const utils = __importStar(require("@iobroker/adapter-core"));
 const admin_messages_1 = require("./api/admin-messages");
 const GoodWe_1 = require("./GoodWe/GoodWe");
+const config_1 = require("./lib/config");
+const errors_1 = require("./lib/errors");
 const goodwe_discovery_1 = require("./lib/goodwe-discovery");
 const scheduler_1 = require("./scheduler");
 const states_1 = __importDefault(require("./states"));
@@ -65,6 +67,9 @@ class Goodwe extends utils.Adapter {
      * Is called when databases are connected and adapter received configuration.
      */
     async onReady() {
+        // Must run before InitializeObjects(): a mistyped boolean would make the
+        // state manager treat an enabled register group as disabled and delete it.
+        (0, config_1.normalizeBooleanConfig)(this.config);
         await this.states.InitializeObjects();
         await this.states.SetConnection(false);
         const configuredIp = (0, goodwe_discovery_1.extractIpv4Address)(this.config.ipAddr);
@@ -92,11 +97,14 @@ class Goodwe extends utils.Adapter {
     onUnload(callback) {
         try {
             this.pollScheduler.stop();
+            // Block writes first: a poll may still be in flight and destructor()
+            // rejects it, which would otherwise write states after shutdown.
+            this.states.Stop();
             this.inverter.destructor();
             callback();
         }
         catch (e) {
-            this.log.error(`error: ${e}`);
+            this.log.error(`error: ${(0, errors_1.errorMessage)(e)}`);
             callback();
         }
     }

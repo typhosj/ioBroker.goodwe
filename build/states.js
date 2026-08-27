@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const config_1 = require("./lib/config");
 const register_map_1 = require("./lib/register-map");
 const status_mapper_1 = require("./mappers/status-mapper");
 const optionalDerivedStates = {
@@ -21,9 +22,25 @@ const legacyModeTextStates = [
 class GoodWeStateManager {
     adapter;
     inverter;
+    stopped = false;
     constructor(adapter, inverter) {
         this.adapter = adapter;
         this.inverter = inverter;
+    }
+    /**
+     * Blocks further state writes once the adapter unloads.
+     *
+     * A poll that is still in flight when onUnload() runs would otherwise write
+     * states after the adapter reported shutdown.
+     */
+    Stop() {
+        this.stopped = true;
+    }
+    async Write(id, value) {
+        if (this.stopped) {
+            return;
+        }
+        await this.adapter.setStateChangedAsync(id, value, true);
     }
     async InitializeObjects() {
         await this.DeleteLegacyTypoStates();
@@ -34,15 +51,18 @@ class GoodWeStateManager {
         await this.CreateDecodedStatusObjects();
     }
     async SetConnection(value) {
-        await this.adapter.setStateChangedAsync("info.connection", value, true);
+        await this.Write("info.connection", value);
     }
     IsRegisterGroupEnabled(groupName) {
         const configKey = register_map_1.optionalGroupConfigs[groupName];
         if (!configKey) {
             return true;
         }
-        return (this.adapter.config.pollExtended !== false &&
-            this.adapter.config[configKey] === true);
+        // Normalize here as well: a mistyped switch does not only disable the
+        // group, it makes CleanupDisabledOptionalStates() delete its objects.
+        const config = this.adapter.config;
+        return ((0, config_1.normalizeBoolean)(config.pollExtended, true) &&
+            (0, config_1.normalizeBoolean)(config[configKey], config_1.booleanDefaults[configKey] ?? false));
     }
     async CreateObjectsFromRegisterMap() {
         const channels = new Set();
@@ -63,7 +83,7 @@ class GoodWeStateManager {
         for (const channel of channels) {
             await this.adapter.setObjectNotExistsAsync(channel, {
                 type: "channel",
-                common: { name: channel.split(".").pop() },
+                common: { name: channel.split(".").pop() ?? channel },
                 native: {},
             });
         }
@@ -75,7 +95,7 @@ class GoodWeStateManager {
                 await this.adapter.setObjectNotExistsAsync(item.state, {
                     type: "state",
                     common: {
-                        name: item.state.split(".").pop(),
+                        name: item.state.split(".").pop() ?? item.state,
                         type: item.type === register_map_1.TYPE.STRING ? "string" : "number",
                         role: item.type === register_map_1.TYPE.STRING ? "text" : item.role,
                         read: true,
@@ -139,7 +159,7 @@ class GoodWeStateManager {
                 continue;
             }
             const group = register_map_1.registerGroups[groupName];
-            for (const item of register_map_1.registerGroups[groupName].entries) {
+            for (const item of group.entries) {
                 const object = await this.adapter.getObjectAsync(item.state);
                 if (object) {
                     await this.adapter.delObjectAsync(item.state);
@@ -220,9 +240,14 @@ class GoodWeStateManager {
         }
     }
     async UpdateStatesFromRegisterMap(group) {
-        const source = this.inverter[this.GroupGetter(group)];
+        const getter = this.GroupGetter(group);
+        if (getter === "") {
+            this.adapter.log.error(`No inverter model getter for register group ${group.name}`);
+            return;
+        }
+        const source = this.inverter[getter];
         for (const item of group.entries) {
-            await this.adapter.setStateChangedAsync(item.state, this.GetStateValue(item.state, item.model, source), true);
+            await this.Write(item.state, this.GetStateValue(item.state, item.model, source));
         }
     }
     GroupGetter(group) {
@@ -271,16 +296,18 @@ class GoodWeStateManager {
             : undefined, source);
         return value;
     }
+    async UpdateDerivedRunningStates() {
+        await this.Write("RunningData.TotalPowerPv", this.inverter.RunningData.TotalPowerPv);
+    }
     async UpdateDecodedRunningStatuses() {
         for (const state of (0, status_mapper_1.getDecodedRunningStatuses)(this.inverter.RunningData)) {
-            await this.adapter.setStateChangedAsync(state.id, state.value, true);
+            await this.Write(state.id, state.value);
         }
     }
     async UpdateDecodedBmsStatuses() {
         for (const state of (0, status_mapper_1.getDecodedBmsStatuses)(this.inverter.BmsInfo, this.IsRegisterGroupEnabled("bmsInfoExtended"))) {
-            await this.adapter.setStateChangedAsync(state.id, state.value, true);
+            await this.Write(state.id, state.value);
         }
     }
 }
 exports.default = GoodWeStateManager;
-module.exports = GoodWeStateManager;

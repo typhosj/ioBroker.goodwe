@@ -10,6 +10,8 @@ import {
   handleAdapterMessage,
 } from "./api/admin-messages";
 import { GoodWeUdp } from "./GoodWe/GoodWe";
+import { normalizeBooleanConfig } from "./lib/config";
+import { errorMessage } from "./lib/errors";
 import {
   extractIpv4Address,
   validateIpv4Address,
@@ -45,6 +47,10 @@ class Goodwe extends utils.Adapter {
    * Is called when databases are connected and adapter received configuration.
    */
   async onReady(): Promise<void> {
+    // Must run before InitializeObjects(): a mistyped boolean would make the
+    // state manager treat an enabled register group as disabled and delete it.
+    normalizeBooleanConfig(this.config);
+
     await this.states.InitializeObjects();
     await this.states.SetConnection(false);
 
@@ -81,11 +87,14 @@ class Goodwe extends utils.Adapter {
   onUnload(callback: () => void): void {
     try {
       this.pollScheduler.stop();
+      // Block writes first: a poll may still be in flight and destructor()
+      // rejects it, which would otherwise write states after shutdown.
+      this.states.Stop();
       this.inverter.destructor();
 
       callback();
     } catch (e) {
-      this.log.error(`error: ${e}`);
+      this.log.error(`error: ${errorMessage(e)}`);
       callback();
     }
   }

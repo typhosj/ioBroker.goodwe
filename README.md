@@ -105,6 +105,15 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+- Fixed unsigned 32 bit registers being reported as negative values (for example `RunningData.DiagStatusL` and `RunningData.ErrorMessage`).
+- Boolean options are normalized at adapter start, so a string typed switch no longer disables an optional register group and deletes its states.
+- Discarded late UDP answers after a timeout; they could be parsed as the answer of the next register group with the same length.
+- Blocked state writes after `onUnload()` and moved the last direct state write out of the scheduler.
+- Added an exponential backoff for reconnect attempts while the inverter is offline and reduced the repeated warnings to debug.
+- Clamped probe timeouts coming from admin messages.
+- Enabled TypeScript `strict` mode.
+
 ### 1.1.1 (2026-07-16)
 - (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
 - Migrated the admin configuration page to a React based UI and removed the legacy Materialize UI files.

@@ -1,18 +1,15 @@
 "use strict";
 
+import { errorMessage } from "../lib/errors";
 import {
+  clampProbeTimeout,
   discoverGoodWeInverters,
   extractIpv4Address,
   probeGoodWeInverter,
   validateIpv4Address,
 } from "../lib/goodwe-discovery";
 
-interface AdapterMessage {
-  command?: string;
-  message?: Record<string, unknown>;
-  callback?: ioBroker.MessageCallback;
-  from: string;
-}
+type AdapterMessage = ioBroker.Message;
 
 interface MessageAdapter {
   config: ioBroker.AdapterConfig;
@@ -20,7 +17,7 @@ interface MessageAdapter {
     instanceName: string,
     command: string,
     message: Record<string, unknown>,
-    callback?: ioBroker.MessageCallback,
+    callback?: ioBroker.MessageCallback | ioBroker.MessageCallbackInfo,
   ) => void;
 }
 
@@ -54,7 +51,7 @@ async function handleAdapterMessage(
         }
 
         const result = await probeGoodWeInverter(validation.ip, {
-          timeoutMs: Number(obj.message?.timeoutMs) || 1000,
+          timeoutMs: clampProbeTimeout(obj.message?.timeoutMs),
         });
 
         respond({
@@ -71,7 +68,7 @@ async function handleAdapterMessage(
         const result = await discoverGoodWeInverters({
           ip: getConfiguredIp(adapter, obj.message?.ip),
           subnet: getConfiguredSubnet(adapter, obj.message?.subnet),
-          timeoutMs: Number(obj.message?.timeoutMs) || 700,
+          timeoutMs: clampProbeTimeout(obj.message?.timeoutMs),
           concurrency: Number(obj.message?.concurrency) || undefined,
         });
 
@@ -83,7 +80,7 @@ async function handleAdapterMessage(
         respond({ error: `Unknown command: ${obj.command}` });
     }
   } catch (error) {
-    respond({ error: error.message ?? String(error) });
+    respond({ error: errorMessage(error) });
   }
 }
 

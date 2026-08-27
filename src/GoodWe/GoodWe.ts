@@ -1,4 +1,5 @@
 import dgram from "node:dgram";
+import { errorMessage } from "../lib/errors";
 import {
   registerGroups,
   type RegisterEntry,
@@ -223,7 +224,8 @@ export class GoodWeUdp {
   #port = 0;
   #client = dgram.createSocket("udp4");
   #pendingRequests: PendingRequest[] = [];
-  #optionalGroupBackoffUntil = new Map();
+  #staleFrames = 0;
+  #optionalGroupBackoffUntil = new Map<string, number>();
   #timeoutMs = GoodWeUdp.DefaultTimeoutMs;
   #retries = GoodWeUdp.DefaultRetries;
   #idInfo = new GoodWeIdInfo();
@@ -286,7 +288,25 @@ export class GoodWeUdp {
     );
 
     if (requestIndex === -1) {
+      if (this.#staleFrames > 0) {
+        this.#staleFrames--;
+      }
+
       this.log.debug?.(`Ignoring unmatched UDP frame (${rcvbuf.length} bytes)`);
+      return;
+    }
+
+    if (this.#staleFrames > 0) {
+      // The register protocol has no transaction id and the matcher can only
+      // check function code plus payload length, so a late answer to a timed
+      // out request would silently resolve the next request of a group with
+      // the same length (flashInfo and powerLimit both read 14 registers).
+      // ponytail: drop one frame per timeout, per-request ids need a protocol
+      // change on the inverter side.
+      this.#staleFrames--;
+      this.log.debug?.(
+        `Discarding late UDP frame after timeout (${rcvbuf.length} bytes)`,
+      );
       return;
     }
 
@@ -343,6 +363,7 @@ export class GoodWeUdp {
             if (requestIndex !== -1) {
               this.#pendingRequests.splice(requestIndex, 1);
             }
+            this.#staleFrames++;
             reject(new Error(`${name} timed out after ${this.#timeoutMs} ms`));
           }, this.#timeoutMs);
 
@@ -528,17 +549,18 @@ export class GoodWeUdp {
           groupName,
           Date.now() + 60 * 60 * 1000,
         );
-        this.log.debug?.(`${group.name}: ${error.message ?? error}`);
+        this.log.debug?.(`${group.name}: ${errorMessage(error)}`);
         return false;
       }
 
-      this.log.warn(`${group.name}: ${error.message ?? error}`);
+      this.log.warn(`${group.name}: ${errorMessage(error)}`);
       return false;
     }
   }
 
   async ReadIdInfo(): Promise<boolean> {
     const sendbuf = new Uint8Array(9);
+    const wasOnline = this.#status === GoodWeUdp.ConStatus.Online;
     let i;
     let crc = 0;
 
@@ -577,7 +599,14 @@ export class GoodWeUdp {
 
       return true;
     } catch (error) {
-      this.log.warn(`ReadIdInfo: ${error.message ?? error}`);
+      // Only the transition to offline is worth a warning; the scheduler keeps
+      // retrying and would otherwise fill the log every reconnect attempt.
+      if (wasOnline) {
+        this.log.warn(`ReadIdInfo: ${errorMessage(error)}`);
+      } else {
+        this.log.debug?.(`ReadIdInfo: ${errorMessage(error)}`);
+      }
+
       return false;
     }
   }
@@ -697,11 +726,11 @@ export class GoodWeUdp {
     let value = 0;
 
     buf = Data.slice(Start, Start + Length);
-    //buf.reverse();
 
     for (i = 0; i < Length; i++) {
-      value = value << 8;
-      value = value + buf[i];
+      // Multiply instead of "<< 8": the shift truncates to int32, so U32
+      // registers with bit 31 set would be reported as negative values.
+      value = value * 256 + buf[i];
     }
 
     return value;
