@@ -104,7 +104,7 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.1.3 (2026-08-28)
 - Fixed the adapter crashing with `Cannot read properties of undefined (reading 'debug')`: the logger is now read when it is used instead of being captured before the adapter assigned it.
 - Fixed the adapter staying offline after a single lost UDP answer. The socket is rebound after a timeout, so a late answer can no longer be mistaken for the answer of the next register group.
 - The first failed reconnect is logged as a warning again, so an adapter that turned yellow no longer stays silent.
@@ -137,14 +137,6 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 * Added GoodWe UDP reachability check from the admin configuration
 * Added `/24` network discovery for GoodWe inverters via UDP port 8899
 * Added discovered inverter selection in the IP address field with model and serial information
-
-### 1.0.8 (2026-06-23)
-* Added separate basic and advanced configuration tabs
-* Added per-group optional register polling defaults based on real device feedback
-* Removed legacy misspelled states and added startup cleanup for them
-* Cleaned up legacy hard-coded decoder code in favor of the register map
-* Finalized selected state units and roles
-* Expanded README with state overview and troubleshooting
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

@@ -33,3 +33,10 @@
 
 ### 1.0.0 (2022-12-31)
 * (Thomas Schönberger) initial release
+## 1.0.8 (2026-06-23)
+* Added separate basic and advanced configuration tabs
+* Added per-group optional register polling defaults based on real device feedback
+* Removed legacy misspelled states and added startup cleanup for them
+* Cleaned up legacy hard-coded decoder code in favor of the register map
+* Finalized selected state units and roles
+* Expanded README with state overview and troubleshooting
