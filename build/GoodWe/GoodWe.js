@@ -200,9 +200,8 @@ class GoodWeUdp {
     #status = _a.ConStatus.Offline;
     #ipAddr = "";
     #port = 0;
-    #client = node_dgram_1.default.createSocket("udp4");
+    #client;
     #pendingRequests = [];
-    #staleFrames = 0;
     #optionalGroupBackoffUntil = new Map();
     #timeoutMs = _a.DefaultTimeoutMs;
     #retries = _a.DefaultRetries;
@@ -215,17 +214,46 @@ class GoodWeUdp {
     #bmsDetail = {};
     #ceiAutoTest = {};
     #powerLimit = {};
-    log;
+    #logHost;
+    // The adapter assigns its logger asynchronously after the constructor runs,
+    // so a class field capturing adapter.log stores undefined and every log call
+    // in a socket callback throws. Resolve the logger per call instead.
+    get log() {
+        return this.#logHost.log;
+    }
     /**
-     * @param log
+     * @param logHost object exposing the logger, usually the adapter instance
+     * @param logHost.log adapter logger, may be assigned after construction
      */
-    constructor(log) {
-        this.log = log;
-        this.#client.on("message", (rcvbuf) => this.#handleMessage(rcvbuf));
-        this.#client.on("error", (error) => {
+    constructor(logHost) {
+        this.#logHost = logHost;
+        this.#client = this.#createSocket();
+    }
+    #createSocket() {
+        const client = node_dgram_1.default.createSocket("udp4");
+        client.on("message", (rcvbuf) => this.#handleMessage(rcvbuf));
+        client.on("error", (error) => {
             this.#status = _a.ConStatus.Offline;
             this.log.warn(`UDP socket error: ${error.message}`);
         });
+        return client;
+    }
+    // The register protocol has no transaction id and the matcher can only check
+    // function code plus payload length, so a late answer to a timed out request
+    // would silently resolve the next request that reads the same number of
+    // registers (flashInfo and powerLimit both read 14). Rebinding after a
+    // timeout gives the next request a fresh source port, so answers to the
+    // abandoned one can no longer reach it.
+    #resetSocket() {
+        const previous = this.#client;
+        previous.removeAllListeners();
+        try {
+            previous.close();
+        }
+        catch {
+            // Already closed or never bound - nothing to release.
+        }
+        this.#client = this.#createSocket();
     }
     destructor() {
         for (const request of this.#pendingRequests.splice(0)) {
@@ -244,21 +272,7 @@ class GoodWeUdp {
     #handleMessage(rcvbuf) {
         const requestIndex = this.#pendingRequests.findIndex((request) => request.matcher(rcvbuf));
         if (requestIndex === -1) {
-            if (this.#staleFrames > 0) {
-                this.#staleFrames--;
-            }
             this.log.debug?.(`Ignoring unmatched UDP frame (${rcvbuf.length} bytes)`);
-            return;
-        }
-        if (this.#staleFrames > 0) {
-            // The register protocol has no transaction id and the matcher can only
-            // check function code plus payload length, so a late answer to a timed
-            // out request would silently resolve the next request of a group with
-            // the same length (flashInfo and powerLimit both read 14 registers).
-            // ponytail: drop one frame per timeout, per-request ids need a protocol
-            // change on the inverter side.
-            this.#staleFrames--;
-            this.log.debug?.(`Discarding late UDP frame after timeout (${rcvbuf.length} bytes)`);
             return;
         }
         const [request] = this.#pendingRequests.splice(requestIndex, 1);
@@ -298,7 +312,7 @@ class GoodWeUdp {
                         if (requestIndex !== -1) {
                             this.#pendingRequests.splice(requestIndex, 1);
                         }
-                        this.#staleFrames++;
+                        this.#resetSocket();
                         reject(new Error(`${name} timed out after ${this.#timeoutMs} ms`));
                     }, this.#timeoutMs);
                     request.timeout = timeout;

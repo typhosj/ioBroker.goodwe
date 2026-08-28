@@ -48,7 +48,7 @@ const goodwe_discovery_1 = require("./lib/goodwe-discovery");
 const scheduler_1 = require("./scheduler");
 const states_1 = __importDefault(require("./states"));
 class Goodwe extends utils.Adapter {
-    inverter = new GoodWe_1.GoodWeUdp(this.log);
+    inverter = new GoodWe_1.GoodWeUdp(this);
     states = new states_1.default(this, this.inverter);
     pollScheduler = new scheduler_1.GoodWePollScheduler(this, this.inverter, this.states, 1000);
     /**

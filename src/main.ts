@@ -20,7 +20,7 @@ import { GoodWePollScheduler } from "./scheduler";
 import GoodWeStateManager from "./states";
 
 class Goodwe extends utils.Adapter {
-  inverter = new GoodWeUdp(this.log);
+  inverter = new GoodWeUdp(this);
   states = new GoodWeStateManager(this, this.inverter);
   pollScheduler = new GoodWePollScheduler(
     this,

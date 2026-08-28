@@ -90,6 +90,12 @@ class GoodWePollScheduler {
                 }
                 const success = await this.inverter.ReadIdInfo();
                 await this.states.SetConnection(success);
+                // ReadIdInfo() only logs on debug once the inverter is already offline,
+                // so without this the adapter would go yellow after a single timeout and
+                // never say why again.
+                if (!success && this.reconnectDelay === 0) {
+                    this.adapter.log.warn("Inverter did not answer, retrying with increasing delay");
+                }
                 this.reconnectDelay = success
                     ? 0
                     : Math.min(ReconnectDelay.Max, Math.max(1, this.reconnectDelay * 2));

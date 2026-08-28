@@ -731,13 +731,17 @@ function writeAscii(
 }
 
 function createInverter(socket: EventEmitter): GoodWeUdp {
+  return createInverterWithSockets(() => socket);
+}
+
+function createInverterWithSockets(factory: () => EventEmitter): GoodWeUdp {
   const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
     "node:dgram": {
-      createSocket: () => socket,
+      createSocket: factory,
     },
-  }) as { GoodWeUdp: new (log: ioBroker.Logger) => GoodWeUdp };
+  }) as { GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp };
 
-  return new GoodWeUdp(testLogger);
+  return new GoodWeUdp({ log: testLogger });
 }
 
 class FakeSocket extends EventEmitter {
@@ -994,7 +998,52 @@ describe("UDP frame safety", () => {
         response.writeUInt16BE(0x1234, 5);
       },
     );
-    const socket = new StaleAnswerSocket(buildIdInfoResponse(), staleFrame);
+    const sockets: ScriptedSocket[] = [];
+    const inverter = createInverterWithSockets(() => {
+      const socket = new ScriptedSocket(
+        sockets.length === 0 ? [buildIdInfoResponse(), null] : [null],
+      );
+
+      sockets.push(socket);
+
+      return socket;
+    });
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    // flashInfo stays unanswered and times out, which rebinds the socket.
+    assert.equal(
+      await inverter.ReadGroup("flashInfo", { optional: true }),
+      false,
+    );
+    assert.equal(sockets.length, 2);
+
+    // The inverter answers the abandoned request after the rebind. powerLimit
+    // reads the same number of registers, so that answer would match its
+    // matcher - it must not reach the new socket.
+    sockets[0].emit("message", staleFrame);
+
+    assert.equal(
+      await inverter.ReadGroup("powerLimit", { optional: true }),
+      false,
+    );
+    assert.deepEqual(inverter.PowerLimit, {});
+  });
+
+  it("recovers when the timed out answer never arrives", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      // The answer to the first register read is lost on the network.
+      null,
+      buildRegisterResponse(registerGroups.runningData, () => {}),
+    ]);
     const inverter = createInverter(socket);
 
     assert.equal(
@@ -1004,18 +1053,24 @@ describe("UDP frame safety", () => {
       }),
       true,
     );
-    // flashInfo stays unanswered and times out.
-    assert.equal(
-      await inverter.ReadGroup("flashInfo", { optional: true }),
-      false,
-    );
-    // powerLimit reads the same number of registers, so the late flashInfo
-    // answer matches its matcher and must not be accepted.
-    assert.equal(
-      await inverter.ReadGroup("powerLimit", { optional: true }),
-      false,
-    );
-    assert.deepEqual(inverter.PowerLimit, {});
+    assert.equal(await inverter.ReadGroup("runningData"), false);
+    // The lost frame never shows up, so the next answer has to be accepted
+    // instead of being dropped as the late one forever.
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+  });
+
+  it("logs an unmatched frame when the logger appears after construction", () => {
+    const socket = new EventEmitter();
+    const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
+      "node:dgram": { createSocket: () => socket },
+    }) as { GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp };
+    // The adapter assigns its logger asynchronously after the constructor ran.
+    const logHost = {} as { log: ioBroker.Logger };
+
+    new GoodWeUdp(logHost);
+    logHost.log = testLogger;
+
+    assert.doesNotThrow(() => socket.emit("message", Buffer.alloc(8)));
   });
 });
 
@@ -1056,15 +1111,15 @@ describe("admin message limits", () => {
   });
 });
 
-class StaleAnswerSocket extends EventEmitter {
-  private readonly idInfoFrame: Buffer;
-  private readonly staleFrame: Buffer;
+// Answers the n-th send with frames[n], or nothing when that entry is null.
+// The last entry is repeated for every further send.
+class ScriptedSocket extends EventEmitter {
+  private readonly frames: (Buffer | null)[];
   private sendCount = 0;
 
-  constructor(idInfoFrame: Buffer, staleFrame: Buffer) {
+  constructor(frames: (Buffer | null)[]) {
     super();
-    this.idInfoFrame = idInfoFrame;
-    this.staleFrame = staleFrame;
+    this.frames = frames;
   }
 
   send(
@@ -1076,15 +1131,16 @@ class StaleAnswerSocket extends EventEmitter {
     callback: (error?: Error) => void,
   ): void {
     callback(undefined);
+
+    const frame =
+      this.sendCount < this.frames.length
+        ? this.frames[this.sendCount]
+        : this.frames[this.frames.length - 1];
+
     this.sendCount++;
 
-    if (this.sendCount === 1) {
-      process.nextTick(() => this.emit("message", this.idInfoFrame));
-      return;
-    }
-
-    if (this.sendCount === 3) {
-      process.nextTick(() => this.emit("message", this.staleFrame));
+    if (frame) {
+      process.nextTick(() => this.emit("message", frame));
     }
   }
 

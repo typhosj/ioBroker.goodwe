@@ -104,6 +104,11 @@ For unstable network connections, increase `timeoutMs` first. Increase `retries`
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- Fixed the adapter crashing with `Cannot read properties of undefined (reading 'debug')`: the logger is now read when it is used instead of being captured before the adapter assigned it.
+- Fixed the adapter staying offline after a single lost UDP answer. The socket is rebound after a timeout, so a late answer can no longer be mistaken for the answer of the next register group.
+- The first failed reconnect is logged as a warning again, so an adapter that turned yellow no longer stays silent.
+
 ### 1.1.2 (2026-08-27)
 - Fixed unsigned 32 bit registers being reported as negative values (for example `RunningData.DiagStatusL` and `RunningData.ErrorMessage`).
 - Boolean options are normalized at adapter start, so a string typed switch no longer disables an optional register group and deletes its states.
