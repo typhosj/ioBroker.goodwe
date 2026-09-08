@@ -61,6 +61,8 @@ type NativeConfig = {
   pollBmsDetail: boolean;
   pollCeiAutoTest: boolean;
   pollPowerLimit: boolean;
+  pollSettings: boolean;
+  enableControl: boolean;
 };
 
 type DiscoveryInfo = {
@@ -106,6 +108,8 @@ const DEFAULT_CONFIG: NativeConfig = {
   pollBmsDetail: false,
   pollCeiAutoTest: true,
   pollPowerLimit: false,
+  pollSettings: true,
+  enableControl: false,
 };
 
 const ADVANCED_FIELDS: Array<{
@@ -152,6 +156,16 @@ const ADVANCED_FIELDS: Array<{
     key: "pollPowerLimit",
     label: "Poll power limit",
     help: "Reads power limit registers 38450-38463: feed-in limit, phase limits, power factor, PV meter power, grid charge and dispatch values.",
+  },
+  {
+    key: "pollSettings",
+    label: "Poll settings",
+    help: "Reads battery settings 45350-45358 and EMS settings 47509-47512: battery capacity, charge and discharge limits, grid export limit and EMS mode.",
+  },
+  {
+    key: "enableControl",
+    label: "Enable inverter control",
+    help: "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.",
   },
 ];
 
@@ -232,6 +246,8 @@ function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
     pollBmsDetail: settings.pollBmsDetail === true,
     pollCeiAutoTest: settings.pollCeiAutoTest !== false,
     pollPowerLimit: settings.pollPowerLimit === true,
+    pollSettings: settings.pollSettings !== false,
+    enableControl: settings.enableControl === true,
   };
 }
 

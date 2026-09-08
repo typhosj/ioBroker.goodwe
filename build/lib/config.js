@@ -13,6 +13,8 @@ const booleanDefaults = {
     pollBmsDetail: false,
     pollCeiAutoTest: true,
     pollPowerLimit: false,
+    pollSettings: true,
+    enableControl: false,
 };
 exports.booleanDefaults = booleanDefaults;
 function normalizeBoolean(value, fallback) {

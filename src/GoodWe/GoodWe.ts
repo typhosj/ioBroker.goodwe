@@ -54,9 +54,11 @@ export class GoodWeRegister {
   static Addr = { Inverter: 0xf7 };
   static FcDode = {
     Read: 0x03,
-    ReadSingleRegister: 0x06,
+    WriteSingleRegister: 0x06,
     WriteMultipleRegister: 0x09,
   };
+  // Header, address, function code, register address and value, without CRC.
+  static WriteResponse = { Length: 10 };
 }
 
 export class GoodWeIdInfo {
@@ -236,6 +238,7 @@ export class GoodWeUdp {
   #bmsDetail: Record<string, unknown> = {};
   #ceiAutoTest: Record<string, unknown> = {};
   #powerLimit: Record<string, unknown> = {};
+  #settings: Record<string, unknown> = {};
   #logHost: { log: ioBroker.Logger };
 
   // The adapter assigns its logger asynchronously after the constructor runs,
@@ -533,6 +536,8 @@ export class GoodWeUdp {
       bmsDetail: this.#bmsDetail,
       ceiAutoTest: this.#ceiAutoTest,
       powerLimit: this.#powerLimit,
+      settingsBattery: this.#settings,
+      settingsEms: this.#settings,
     };
 
     if (!group || !targets[groupName]) {
@@ -571,6 +576,46 @@ export class GoodWeUdp {
       }
 
       this.log.warn(`${group.name}: ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
+  #buildWriteRegisterRequest(address: number, value: number): Uint8Array {
+    const sendbuf = new Uint8Array(8);
+
+    sendbuf[0] = GoodWeRegister.Addr.Inverter;
+    sendbuf[1] = GoodWeRegister.FcDode.WriteSingleRegister;
+    sendbuf[2] = address >> 8;
+    sendbuf[3] = address & 0x00ff;
+    sendbuf[4] = value >> 8;
+    sendbuf[5] = value & 0x00ff;
+
+    const crc = this.#CalculatetCrc16(sendbuf, 0, 6);
+    sendbuf[6] = crc >> 8;
+    sendbuf[7] = crc & 0x00ff;
+
+    return sendbuf;
+  }
+
+  /**
+   * Writes a single holding register and waits for the inverter to echo it.
+   *
+   * @param address register address
+   * @param value register value, already clamped by the caller
+   */
+  async WriteRegister(address: number, value: number): Promise<boolean> {
+    const sendbuf = this.#buildWriteRegisterRequest(address, value);
+
+    try {
+      await this.#request(
+        sendbuf,
+        (data) => this.#CheckRecWriteData(data, address, value),
+        `WriteRegister ${address}`,
+      );
+
+      return true;
+    } catch (error) {
+      this.log.warn(`WriteRegister ${address}: ${errorMessage(error)}`);
       return false;
     }
   }
@@ -681,6 +726,37 @@ export class GoodWeUdp {
       }
     }
     return false;
+  }
+
+  // A write answer is a fixed length echo of the request, so it carries no
+  // payload length byte the generic register check could use.
+  #CheckRecWriteData(
+    Data: Uint8Array,
+    address: number,
+    value: number,
+  ): boolean {
+    if (Data.length < GoodWeRegister.WriteResponse.Length) {
+      return false;
+    }
+
+    const crc = this.#CalculatetCrc16(
+      Data,
+      2,
+      GoodWeRegister.WriteResponse.Length - GoodWeRegister.Format.CRC16 - 2,
+    );
+
+    return (
+      Data[0] === GoodWeRegister.RecvHeader.High &&
+      Data[1] === GoodWeRegister.RecvHeader.Low &&
+      Data[2] === GoodWeRegister.Addr.Inverter &&
+      Data[3] === GoodWeRegister.FcDode.WriteSingleRegister &&
+      Data[4] === address >> 8 &&
+      Data[5] === (address & 0x00ff) &&
+      Data[6] === value >> 8 &&
+      Data[7] === (value & 0x00ff) &&
+      Data[8] === crc >> 8 &&
+      Data[9] === (crc & 0x00ff)
+    );
   }
 
   #CheckRecRegisterData(
@@ -841,6 +917,10 @@ export class GoodWeUdp {
 
   get PowerLimit(): Record<string, unknown> {
     return this.#powerLimit;
+  }
+
+  get Settings(): Record<string, unknown> {
+    return this.#settings;
   }
 }
 

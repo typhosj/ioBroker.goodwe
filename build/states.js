@@ -92,14 +92,16 @@ class GoodWeStateManager {
                 continue;
             }
             for (const item of group.entries) {
+                const writable = item.writable !== undefined && this.IsControlEnabled();
+                const role = this.StateRole(item, writable);
                 await this.adapter.setObjectNotExistsAsync(item.state, {
                     type: "state",
                     common: {
                         name: item.state.split(".").pop() ?? item.state,
                         type: item.type === register_map_1.TYPE.STRING ? "string" : "number",
-                        role: item.type === register_map_1.TYPE.STRING ? "text" : item.role,
+                        role,
                         read: true,
-                        write: false,
+                        write: writable,
                         unit: item.unit,
                         states: item.states,
                     },
@@ -110,8 +112,54 @@ class GoodWeStateManager {
                     },
                 });
                 await this.UpdateExistingStateEnums(item.state, item.states);
+                if (item.writable !== undefined) {
+                    await this.UpdateExistingControlFlags(item.state, role, writable);
+                }
             }
         }
+    }
+    /**
+     * Reports whether inverter control is switched on in the instance config.
+     */
+    IsControlEnabled() {
+        const config = this.adapter.config;
+        return (0, config_1.normalizeBoolean)(config.enableControl, config_1.booleanDefaults.enableControl);
+    }
+    /**
+     * Returns the role a state gets, depending on whether it accepts writes.
+     *
+     * ioBroker pairs "level" roles with write access and "value" roles with
+     * read-only states, so a writable register may not keep its read role.
+     *
+     * @param item register entry
+     * @param writable whether the state accepts writes
+     */
+    StateRole(item, writable) {
+        if (item.type === register_map_1.TYPE.STRING) {
+            return "text";
+        }
+        return writable ? "level" : item.role;
+    }
+    /**
+     * Keeps role and write flag of an existing object in sync with the switch.
+     *
+     * Turning control off has to take the write permission away again, otherwise
+     * a state stays writable although the adapter no longer sends anything.
+     *
+     * @param id state id
+     * @param role role the state should have
+     * @param writable whether the state accepts writes
+     */
+    async UpdateExistingControlFlags(id, role, writable) {
+        const object = await this.adapter.getObjectAsync(id);
+        if (object?.type !== "state" ||
+            (object.common.write === writable && object.common.role === role)) {
+            return;
+        }
+        await this.adapter.extendObjectAsync(id, {
+            type: "state",
+            common: { role, write: writable },
+        });
     }
     async UpdateExistingStateEnums(id, states) {
         if (!states) {
@@ -274,6 +322,9 @@ class GoodWeStateManager {
                 return "CeiAutoTest";
             case "PowerLimit":
                 return "PowerLimit";
+            case "Settings.Battery":
+            case "Settings.Ems":
+                return "Settings";
             default:
                 return "";
         }

@@ -155,7 +155,9 @@
     "pollBmsExtended": true,
     "pollBmsDetail": false,
     "pollCeiAutoTest": true,
-    "pollPowerLimit": false
+    "pollPowerLimit": false,
+    "pollSettings": true,
+    "enableControl": false
   },
   "objects": [],
   "instanceObjects": [

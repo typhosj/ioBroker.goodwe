@@ -14,6 +14,13 @@ const TYPE = {
 
 type RegisterType = (typeof TYPE)[keyof typeof TYPE];
 
+// Range a writable register accepts. GoodWe documents no writable registers, so
+// the bounds are the safety net: a value outside them is never sent.
+interface WritableRange {
+  min: number;
+  max: number;
+}
+
 interface RegisterEntry {
   address: number;
   state: string;
@@ -25,6 +32,7 @@ interface RegisterEntry {
   role: string;
   byteOffset: number;
   states?: ValueStateMap;
+  writable?: WritableRange;
 }
 
 interface RegisterGroup {
@@ -42,6 +50,7 @@ interface EntryOptions {
   role?: string;
   byteOffset?: number;
   states?: ValueStateMap;
+  writable?: WritableRange;
 }
 
 const registerGroups: Record<string, RegisterGroup> = {
@@ -1013,6 +1022,99 @@ const registerGroups: Record<string, RegisterGroup> = {
       entry(38463, "PowerLimit.DispatchMode", "DispatchMode", TYPE.U16),
     ],
   },
+
+  settingsBattery: {
+    name: "Settings.Battery",
+    start: 45350,
+    count: 9,
+    channel: "Settings",
+    entries: [
+      entry(45350, "Settings.Battery.Capacity", "Battery.Capacity", TYPE.U16, {
+        unit: "Ah",
+      }),
+      entry(45351, "Settings.Battery.Modules", "Battery.Modules", TYPE.U16),
+      entry(
+        45352,
+        "Settings.Battery.ChargeVoltage",
+        "Battery.ChargeVoltage",
+        TYPE.U16,
+        { scale: 10, unit: "V" },
+      ),
+      entry(
+        45353,
+        "Settings.Battery.ChargeCurrent",
+        "Battery.ChargeCurrent",
+        TYPE.U16,
+        { scale: 10, unit: "A" },
+      ),
+      entry(
+        45354,
+        "Settings.Battery.DischargeVoltage",
+        "Battery.DischargeVoltage",
+        TYPE.U16,
+        { scale: 10, unit: "V" },
+      ),
+      entry(
+        45355,
+        "Settings.Battery.DischargeCurrent",
+        "Battery.DischargeCurrent",
+        TYPE.U16,
+        { scale: 10, unit: "A" },
+      ),
+      entry(
+        45356,
+        "Settings.Battery.DischargeDepth",
+        "Battery.DischargeDepth",
+        TYPE.U16,
+        { unit: "%", role: "value.battery" },
+      ),
+      entry(
+        45357,
+        "Settings.Battery.DischargeVoltageOffline",
+        "Battery.DischargeVoltageOffline",
+        TYPE.U16,
+        { scale: 10, unit: "V" },
+      ),
+      entry(
+        45358,
+        "Settings.Battery.DischargeDepthOffline",
+        "Battery.DischargeDepthOffline",
+        TYPE.U16,
+        { unit: "%", role: "value.battery" },
+      ),
+    ],
+  },
+
+  settingsEms: {
+    name: "Settings.Ems",
+    start: 47509,
+    count: 4,
+    channel: "Settings",
+    entries: [
+      entry(
+        47509,
+        "Settings.GridExportEnabled",
+        "GridExportEnabled",
+        TYPE.U16,
+        {
+          states: valueStates.gridExport,
+          writable: { min: 0, max: 1 },
+        },
+      ),
+      entry(47510, "Settings.GridExportLimit", "GridExportLimit", TYPE.U16, {
+        unit: "W",
+        writable: { min: 0, max: 30000 },
+      }),
+      entry(47511, "Settings.EmsMode", "EmsMode", TYPE.U16, {
+        states: valueStates.emsMode,
+        writable: { min: 1, max: 12 },
+      }),
+      entry(47512, "Settings.EmsPowerLimit", "EmsPowerLimit", TYPE.U16, {
+        unit: "W",
+        writable: { min: 0, max: 30000 },
+      }),
+    ],
+  },
 };
 
 const optionalGroupConfigs: Record<string, string> = {
@@ -1023,7 +1125,34 @@ const optionalGroupConfigs: Record<string, string> = {
   bmsDetail: "pollBmsDetail",
   ceiAutoTest: "pollCeiAutoTest",
   powerLimit: "pollPowerLimit",
+  settingsBattery: "pollSettings",
+  settingsEms: "pollSettings",
 };
+
+// Writable register entries by state id. Everything not listed here is refused
+// by the control path, whatever a script writes.
+const writableEntries: ReadonlyMap<string, RegisterEntry> = new Map(
+  Object.values(registerGroups).flatMap((group) =>
+    group.entries
+      .filter((item) => item.writable !== undefined)
+      .map((item): [string, RegisterEntry] => [item.state, item]),
+  ),
+);
+
+/**
+ * Returns the register group a state belongs to, or an empty string.
+ *
+ * @param state ioBroker state id without the adapter namespace
+ */
+function registerGroupOfState(state: string): string {
+  for (const [groupName, group] of Object.entries(registerGroups)) {
+    if (group.entries.some((item) => item.state === state)) {
+      return groupName;
+    }
+  }
+
+  return "";
+}
 
 function entry(
   address: number,
@@ -1043,6 +1172,7 @@ function entry(
     role: options.role ?? roleForUnit(options.unit),
     byteOffset: options.byteOffset ?? 0,
     states: options.states,
+    writable: options.writable,
   };
 }
 
@@ -1262,5 +1392,11 @@ function roleForUnit(unit?: string): string {
   }
 }
 
-export type { RegisterEntry, RegisterGroup };
-export { optionalGroupConfigs, TYPE, registerGroups };
+export type { RegisterEntry, RegisterGroup, WritableRange };
+export {
+  optionalGroupConfigs,
+  registerGroupOfState,
+  TYPE,
+  registerGroups,
+  writableEntries,
+};

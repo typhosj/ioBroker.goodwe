@@ -11,10 +11,19 @@ import {
 import GoodWeStateManager from "../src/states";
 import {
   optionalGroupConfigs,
+  type RegisterEntry,
   type RegisterGroup,
+  registerGroupOfState,
   registerGroups,
   TYPE,
+  writableEntries,
 } from "../src/lib/register-map";
+import {
+  applyControlWrite,
+  clampWriteValue,
+  stripNamespace,
+  writableStateIds,
+} from "../src/lib/control";
 import {
   bitfields,
   decodeBitfield,
@@ -83,6 +92,8 @@ const testConfig: ioBroker.AdapterConfig = {
   pollBmsDetail: false,
   pollCeiAutoTest: false,
   pollPowerLimit: false,
+  pollSettings: true,
+  enableControl: false,
 };
 
 describe("register map", () => {
@@ -121,10 +132,35 @@ describe("register map", () => {
       "bmsDetail",
       "ceiAutoTest",
       "powerLimit",
+      "settingsBattery",
+      "settingsEms",
     ]) {
       assert.ok(registerGroups[groupName], `${groupName} is missing`);
       assert.ok(registerGroups[groupName].entries.length > 0);
     }
+  });
+
+  it("marks only the documented control registers as writable", () => {
+    assert.deepEqual(Array.from(writableEntries.keys()).sort(), [
+      "Settings.EmsMode",
+      "Settings.EmsPowerLimit",
+      "Settings.GridExportEnabled",
+      "Settings.GridExportLimit",
+    ]);
+
+    for (const entry of writableEntries.values()) {
+      // A scaled or multi register write would need an encoder, so the control
+      // path only accepts plain single register values.
+      assert.equal(entry.scale, 1, `${entry.state} is scaled`);
+      assert.equal(entry.registers, 1, `${entry.state} spans registers`);
+      assert.ok(entry.writable && entry.writable.min < entry.writable.max);
+    }
+  });
+
+  it("finds the register group of a state", () => {
+    assert.equal(registerGroupOfState("Settings.EmsMode"), "settingsEms");
+    assert.equal(registerGroupOfState("RunningData.GridMode"), "runningData");
+    assert.equal(registerGroupOfState("Settings.Unknown"), "");
   });
 
   it("defines config switches for every optional group", () => {
@@ -189,6 +225,7 @@ describe("register map", () => {
       undefined,
       "%",
       "A",
+      "Ah",
       "C",
       "Hz",
       "VA",
@@ -786,6 +823,61 @@ class ClosingErrorSocket extends EventEmitter {
   }
 }
 
+function commonOf(
+  objects: ObjectWrite[],
+  id: string,
+): { role: string; write: boolean | undefined } | undefined {
+  const object = objects.find((entry) => entry.id === id)?.object;
+
+  return object?.type === "state"
+    ? { role: object.common.role, write: object.common.write }
+    : undefined;
+}
+
+class RecordingSocket extends EventEmitter {
+  private readonly requests: Buffer[];
+  private readonly responseFactory: () => Buffer;
+
+  constructor(requests: Buffer[], responseFactory: () => Buffer) {
+    super();
+    this.requests = requests;
+    this.responseFactory = responseFactory;
+  }
+
+  send(
+    buffer: Uint8Array,
+    _offset: number,
+    _length: number,
+    _port: number,
+    _ip: string,
+    callback: (error?: Error) => void,
+  ): void {
+    this.requests.push(Buffer.from(buffer));
+    callback(undefined);
+    process.nextTick(() => this.emit("message", this.responseFactory()));
+  }
+
+  close(): void {}
+}
+
+function buildWriteResponse(address: number, value: number): Buffer {
+  const response = Buffer.alloc(10);
+
+  response[0] = 0xaa;
+  response[1] = 0x55;
+  response[2] = 0xf7;
+  response[3] = 0x06;
+  response.writeUInt16BE(address, 4);
+  response.writeUInt16BE(value, 6);
+
+  const crc = calculateCrc16(response, 2, 6);
+
+  response[8] = crc >> 8;
+  response[9] = crc & 0xff;
+
+  return response;
+}
+
 function buildRegisterResponse(
   group: RegisterGroup,
   writePayload: (response: Buffer) => void,
@@ -829,6 +921,273 @@ function calculateCrc16(
 
   return ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
 }
+
+describe("inverter control", () => {
+  const emsMode = writableEntries.get("Settings.EmsMode") as RegisterEntry;
+  const exportLimit = writableEntries.get(
+    "Settings.GridExportLimit",
+  ) as RegisterEntry;
+
+  function createControlContext(controlEnabled = true): {
+    context: Parameters<typeof applyControlWrite>[0];
+    reads: string[];
+    updated: string[];
+    writes: Array<{ address: number; value: number }>;
+  } {
+    const writes: Array<{ address: number; value: number }> = [];
+    const reads: string[] = [];
+    const updated: string[] = [];
+
+    return {
+      context: {
+        adapter: { log: testLogger, namespace: "goodwe.0" },
+        inverter: {
+          WriteRegister: (address: number, value: number) => {
+            writes.push({ address, value });
+            return Promise.resolve(true);
+          },
+          ReadGroup: (groupName: string) => {
+            reads.push(groupName);
+            return Promise.resolve(true);
+          },
+        },
+        states: {
+          IsControlEnabled: () => controlEnabled,
+          UpdateStatesFromRegisterMap: (group: RegisterGroup) => {
+            updated.push(group.name);
+            return Promise.resolve();
+          },
+        },
+      },
+      reads,
+      updated,
+      writes,
+    };
+  }
+
+  it("clamps written values into the register range", () => {
+    assert.equal(clampWriteValue(emsMode, 0), 1);
+    assert.equal(clampWriteValue(emsMode, 99), 12);
+    assert.equal(clampWriteValue(exportLimit, 3500.4), 3500);
+    assert.equal(clampWriteValue(exportLimit, -1), 0);
+    assert.equal(clampWriteValue(exportLimit, true), 1);
+    assert.equal(clampWriteValue(exportLimit, "3500"), null);
+    assert.equal(clampWriteValue(exportLimit, Number.NaN), null);
+    assert.equal(clampWriteValue(exportLimit, null), null);
+  });
+
+  it("subscribes exactly the writable states", () => {
+    assert.deepEqual(writableStateIds().sort(), [
+      "Settings.EmsMode",
+      "Settings.EmsPowerLimit",
+      "Settings.GridExportEnabled",
+      "Settings.GridExportLimit",
+    ]);
+  });
+
+  it("strips the adapter namespace from a state id", () => {
+    assert.equal(
+      stripNamespace("goodwe.0.Settings.EmsMode", "goodwe.0"),
+      "Settings.EmsMode",
+    );
+    assert.equal(
+      stripNamespace("Settings.EmsMode", "goodwe.0"),
+      "Settings.EmsMode",
+    );
+  });
+
+  it("writes a clamped value and reads the register group back", async () => {
+    const control = createControlContext();
+
+    await applyControlWrite(
+      control.context,
+      "goodwe.0.Settings.GridExportLimit",
+      { val: 99999, ack: false } as ioBroker.State,
+    );
+
+    assert.deepEqual(control.writes, [{ address: 47510, value: 30000 }]);
+    assert.deepEqual(control.reads, ["settingsEms"]);
+    assert.deepEqual(control.updated, ["Settings.Ems"]);
+  });
+
+  it("ignores acknowledged values, read-only states and disabled control", async () => {
+    const acknowledged = createControlContext();
+    await applyControlWrite(acknowledged.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: true,
+    } as ioBroker.State);
+
+    const readOnly = createControlContext();
+    await applyControlWrite(
+      readOnly.context,
+      "goodwe.0.Settings.Battery.DischargeDepth",
+      { val: 50, ack: false } as ioBroker.State,
+    );
+
+    const disabled = createControlContext(false);
+    await applyControlWrite(disabled.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: false,
+    } as ioBroker.State);
+
+    const refusedValue = createControlContext();
+    await applyControlWrite(refusedValue.context, "goodwe.0.Settings.EmsMode", {
+      val: "charge",
+      ack: false,
+    } as ioBroker.State);
+
+    assert.deepEqual(acknowledged.writes, []);
+    assert.deepEqual(readOnly.writes, []);
+    assert.deepEqual(disabled.writes, []);
+    assert.deepEqual(refusedValue.writes, []);
+  });
+
+  it("creates writable settings states only when control is enabled", async () => {
+    const objects: ObjectWrite[] = [];
+    const adapter: StateAdapterLike = {
+      config: { ...testConfig, enableControl: true },
+      log: testLogger,
+      setObjectNotExistsAsync: (
+        id: string,
+        object: ioBroker.SettableObject,
+      ) => {
+        objects.push({ id, object });
+        return Promise.resolve(undefined);
+      },
+      extendObjectAsync: () => Promise.resolve(undefined),
+      getObjectAsync: () => Promise.resolve(undefined),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+
+    await new GoodWeStateManager(
+      adapter,
+      {} as unknown as GoodWeUdp,
+    ).CreateObjectsFromRegisterMap();
+
+    const readOnlyObjects: ObjectWrite[] = [];
+
+    await new GoodWeStateManager(
+      {
+        ...adapter,
+        config: { ...testConfig, enableControl: false },
+        setObjectNotExistsAsync: (
+          id: string,
+          object: ioBroker.SettableObject,
+        ) => {
+          readOnlyObjects.push({ id, object });
+          return Promise.resolve(undefined);
+        },
+      },
+      {} as unknown as GoodWeUdp,
+    ).CreateObjectsFromRegisterMap();
+
+    assert.deepEqual(commonOf(objects, "Settings.EmsMode"), {
+      role: "level",
+      write: true,
+    });
+    assert.deepEqual(commonOf(objects, "Settings.Battery.DischargeDepth"), {
+      role: "value.battery",
+      write: false,
+    });
+    // A read-only state may not keep the "level" role: ioBroker pairs it with
+    // write access, and the repository object check rejects the mismatch.
+    assert.deepEqual(commonOf(readOnlyObjects, "Settings.EmsMode"), {
+      role: "value",
+      write: false,
+    });
+    assert.deepEqual(commonOf(readOnlyObjects, "Settings.GridExportLimit"), {
+      role: "value.power",
+      write: false,
+    });
+  });
+
+  it("takes role and write permission back when control is switched off", async () => {
+    const updates: Array<{ id: string; object: ioBroker.PartialObject }> = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: (id: string, object: ioBroker.PartialObject) => {
+        updates.push({ id, object });
+        return Promise.resolve(undefined);
+      },
+      getObjectAsync: (id: string) =>
+        Promise.resolve({
+          _id: id,
+          type: "state",
+          common: {
+            name: "EmsMode",
+            type: "number",
+            role: "level",
+            read: true,
+            write: true,
+          },
+          native: {},
+        } as ioBroker.Object),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+
+    await new GoodWeStateManager(
+      adapter,
+      {} as unknown as GoodWeUdp,
+    ).UpdateExistingControlFlags("Settings.EmsMode", "value", false);
+
+    assert.deepEqual(updates, [
+      {
+        id: "Settings.EmsMode",
+        object: { type: "state", common: { role: "value", write: false } },
+      },
+    ]);
+  });
+
+  it("writes a single register and accepts the inverter echo", async () => {
+    const requests: Buffer[] = [];
+    const socket = new RecordingSocket(requests, () =>
+      buildWriteResponse(47511, 4),
+    );
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.WriteRegister(47511, 4), true);
+
+    const request = requests[0];
+    const crc = calculateCrc16(request, 0, 6);
+
+    assert.deepEqual(
+      Array.from(request.subarray(0, 6)),
+      [0xf7, 0x06, 0xb9, 0x97, 0x00, 0x04],
+    );
+    assert.equal(request[6], crc >> 8);
+    assert.equal(request[7], crc & 0xff);
+  });
+
+  it("refuses a write answer that echoes another value", async function () {
+    this.timeout(10000);
+
+    const sockets: ScriptedSocket[] = [];
+    const inverter = createInverterWithSockets(() => {
+      const socket = new ScriptedSocket(
+        sockets.length === 0
+          ? [buildIdInfoResponse(), buildWriteResponse(47511, 5)]
+          : [null],
+      );
+
+      sockets.push(socket);
+
+      return socket;
+    });
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(await inverter.WriteRegister(47511, 4), false);
+  });
+});
 
 describe("runtime config normalization", () => {
   it("normalizes boolean options from booleans, strings and numbers", () => {

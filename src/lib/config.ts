@@ -10,6 +10,8 @@ const booleanDefaults: Record<string, boolean> = {
   pollBmsDetail: false,
   pollCeiAutoTest: true,
   pollPowerLimit: false,
+  pollSettings: true,
+  enableControl: false,
 };
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {

@@ -40,6 +40,24 @@ const valueStates = {
         4: "Battery",
         16: "Fault",
     },
+    gridExport: {
+        0: "Disabled",
+        1: "Enabled",
+    },
+    emsMode: {
+        1: "Auto",
+        2: "Charge from PV",
+        3: "Discharge to PV",
+        4: "Import from AC",
+        5: "Export to AC",
+        6: "Conserve",
+        7: "Off-Grid",
+        8: "Battery standby",
+        9: "Buy power",
+        10: "Sell power",
+        11: "Charge battery",
+        12: "Discharge battery",
+    },
 };
 exports.valueStates = valueStates;
 const bitfields = {

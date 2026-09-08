@@ -11,6 +11,7 @@ import {
 } from "./api/admin-messages";
 import { GoodWeUdp } from "./GoodWe/GoodWe";
 import { normalizeBooleanConfig } from "./lib/config";
+import { applyControlWrite, writableStateIds } from "./lib/control";
 import { errorMessage } from "./lib/errors";
 import {
   extractIpv4Address,
@@ -40,6 +41,7 @@ class Goodwe extends utils.Adapter {
 
     this.on("ready", this.onReady.bind(this));
     this.on("message", this.onMessage.bind(this));
+    this.on("stateChange", this.onStateChange.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
 
@@ -53,6 +55,14 @@ class Goodwe extends utils.Adapter {
 
     await this.states.InitializeObjects();
     await this.states.SetConnection(false);
+
+    if (this.states.IsControlEnabled()) {
+      for (const state of writableStateIds()) {
+        this.subscribeStates(state);
+      }
+
+      this.log.info("Inverter control enabled, writable settings subscribed");
+    }
 
     const configuredIp = extractIpv4Address(this.config.ipAddr);
 
@@ -101,6 +111,27 @@ class Goodwe extends utils.Adapter {
 
   async onMessage(obj: AdapterMessage): Promise<void> {
     await handleAdapterMessage(this, obj);
+  }
+
+  /**
+   * Forwards a written control state to the inverter.
+   *
+   * @param id changed state id
+   * @param state changed state
+   */
+  async onStateChange(
+    id: string,
+    state: ioBroker.State | null | undefined,
+  ): Promise<void> {
+    try {
+      await applyControlWrite(
+        { adapter: this, inverter: this.inverter, states: this.states },
+        id,
+        state,
+      );
+    } catch (e) {
+      this.log.warn(`control write failed: ${errorMessage(e)}`);
+    }
   }
 }
 

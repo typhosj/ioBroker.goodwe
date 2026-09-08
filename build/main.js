@@ -43,6 +43,7 @@ const utils = __importStar(require("@iobroker/adapter-core"));
 const admin_messages_1 = require("./api/admin-messages");
 const GoodWe_1 = require("./GoodWe/GoodWe");
 const config_1 = require("./lib/config");
+const control_1 = require("./lib/control");
 const errors_1 = require("./lib/errors");
 const goodwe_discovery_1 = require("./lib/goodwe-discovery");
 const scheduler_1 = require("./scheduler");
@@ -61,6 +62,7 @@ class Goodwe extends utils.Adapter {
         });
         this.on("ready", this.onReady.bind(this));
         this.on("message", this.onMessage.bind(this));
+        this.on("stateChange", this.onStateChange.bind(this));
         this.on("unload", this.onUnload.bind(this));
     }
     /**
@@ -72,6 +74,12 @@ class Goodwe extends utils.Adapter {
         (0, config_1.normalizeBooleanConfig)(this.config);
         await this.states.InitializeObjects();
         await this.states.SetConnection(false);
+        if (this.states.IsControlEnabled()) {
+            for (const state of (0, control_1.writableStateIds)()) {
+                this.subscribeStates(state);
+            }
+            this.log.info("Inverter control enabled, writable settings subscribed");
+        }
         const configuredIp = (0, goodwe_discovery_1.extractIpv4Address)(this.config.ipAddr);
         if (configuredIp === "") {
             this.log.warn("No inverter IP address configured yet");
@@ -110,6 +118,20 @@ class Goodwe extends utils.Adapter {
     }
     async onMessage(obj) {
         await (0, admin_messages_1.handleAdapterMessage)(this, obj);
+    }
+    /**
+     * Forwards a written control state to the inverter.
+     *
+     * @param id changed state id
+     * @param state changed state
+     */
+    async onStateChange(id, state) {
+        try {
+            await (0, control_1.applyControlWrite)({ adapter: this, inverter: this.inverter, states: this.states }, id, state);
+        }
+        catch (e) {
+            this.log.warn(`control write failed: ${(0, errors_1.errorMessage)(e)}`);
+        }
     }
 }
 if (require.main !== module) {
