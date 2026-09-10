@@ -40,6 +40,9 @@ interface RegisterGroup {
   start: number;
   count: number;
   channel: string;
+  // Name of the GoodWeUdp getter holding the parsed values of this group. Single
+  // source of truth: the inverter parses into it, states.ts reads out of it.
+  target: string;
   entries: RegisterEntry[];
 }
 
@@ -59,6 +62,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 35000,
     count: 33,
     channel: "DeviceInfo",
+    target: "DeviceInfo",
     entries: [
       entry(
         35000,
@@ -116,6 +120,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 35100,
     count: 125,
     channel: "RunningData",
+    target: "RunningData",
     entries: [
       entry(35103, "RunningData.PV1.Voltage", "Pv1.Voltage", TYPE.U16, {
         scale: 10,
@@ -490,6 +495,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 36000,
     count: 27,
     channel: "ExtComData",
+    target: "ExtComData",
     entries: [
       entry(36000, "ExtComData.Commode", "Commode", TYPE.U16),
       entry(36001, "ExtComData.Rssi", "Rssi", TYPE.U16),
@@ -564,6 +570,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 37002,
     count: 8,
     channel: "BMSInfo",
+    target: "BmsInfo",
     entries: [
       entry(37002, "BMSInfo.Status", "Status", TYPE.U16),
       entry(37003, "BMSInfo.PackTemperature", "PackTemperature", TYPE.U16, {
@@ -595,6 +602,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 35050,
     count: 10,
     channel: "DeviceInfo",
+    target: "DeviceInfo",
     entries: [
       entry(35050, "DeviceInfo.SIMCCID", "SIMCCID", TYPE.STRING, {
         registers: 10,
@@ -607,6 +615,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 36019,
     count: 26,
     channel: "ExtComData.Extended",
+    target: "ExtComData",
     entries: [
       entry(
         36019,
@@ -712,6 +721,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 36900,
     count: 14,
     channel: "FlashInfo",
+    target: "FlashInfo",
     entries: [
       entry(36900, "FlashInfo.FlashPgmParaVer", "FlashPgmParaVer", TYPE.U16),
       entry(
@@ -756,6 +766,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 37000,
     count: 56,
     channel: "BMSInfo",
+    target: "BmsInfo",
     entries: [
       entry(37000, "BMSInfo.DRMStatus", "DRMStatus", TYPE.U16),
       entry(37001, "BMSInfo.BattTypeIndex", "BattTypeIndex", TYPE.U16),
@@ -833,6 +844,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 37100,
     count: 51,
     channel: "BMSDetail",
+    target: "BmsDetail",
     entries: [
       entry(37100, "BMSDetail.Flag", "Flag", TYPE.U16),
       entry(37101, "BMSDetail.WorkMode", "WorkMode", TYPE.U16),
@@ -954,6 +966,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 38000,
     count: 68,
     channel: "CEIAutoTest",
+    target: "CeiAutoTest",
     entries: [
       entry(38000, "CEIAutoTest.WorkMode", "WorkMode", TYPE.U16),
       entry(38001, "CEIAutoTest.ErrorMessageH", "ErrorMessageH", TYPE.U16),
@@ -978,6 +991,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 38450,
     count: 14,
     channel: "PowerLimit",
+    target: "PowerLimit",
     entries: [
       entry(
         38450,
@@ -1028,6 +1042,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 45350,
     count: 9,
     channel: "Settings",
+    target: "Settings",
     entries: [
       entry(45350, "Settings.Battery.Capacity", "Battery.Capacity", TYPE.U16, {
         unit: "Ah",
@@ -1090,6 +1105,7 @@ const registerGroups: Record<string, RegisterGroup> = {
     start: 47509,
     count: 4,
     channel: "Settings",
+    target: "Settings",
     entries: [
       entry(
         47509,
@@ -1139,6 +1155,14 @@ const writableEntries: ReadonlyMap<string, RegisterEntry> = new Map(
   ),
 );
 
+// Groups holding at least one writable register. Inverter control needs their
+// objects and their read-back, whatever the optional group switches say.
+const writableGroups: ReadonlySet<string> = new Set(
+  Object.entries(registerGroups)
+    .filter(([, group]) => group.entries.some((item) => item.writable))
+    .map(([groupName]) => groupName),
+);
+
 /**
  * Returns the register group a state belongs to, or an empty string.
  *
@@ -1181,9 +1205,9 @@ function typeRegisterCount(type: RegisterType): number {
     case TYPE.U32:
     case TYPE.S32:
     case TYPE.FLOAT:
-    case TYPE.BYTE:
       return 2;
     default:
+      // BYTE addresses one half of a single register, picked by byteOffset.
       return 1;
   }
 }
@@ -1399,4 +1423,5 @@ export {
   TYPE,
   registerGroups,
   writableEntries,
+  writableGroups,
 };

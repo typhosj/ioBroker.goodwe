@@ -42,7 +42,7 @@
     "Request timed out": "Délai dépassé",
     "Retries": "Tentatives",
     "Searching...": "Recherche...",
-    "Seconds, 10-3600": "Secondes, 10-3600",
+    "Seconds, 2-3600": "Secondes, 2-3600",
     "Timeout": "Délai d'attente",
     "Use": "Utiliser",
     "Validate inverter IP": "Valider l'IP de l'onduleur"

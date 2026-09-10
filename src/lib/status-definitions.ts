@@ -178,13 +178,9 @@ const bitfields: Record<string, string[]> = {
   ],
 };
 
-function decodeValue(value: number, states: ValueStateMap): string {
-  return states[value] ?? `Unknown (${value})`;
-}
-
 function decodeBitfield(value: number, definitions: string[]): string[] {
   return definitions.filter((_, bit) => (value & (2 ** bit)) !== 0);
 }
 
 export type { ValueStateMap };
-export { bitfields, decodeBitfield, decodeValue, valueStates };
+export { bitfields, decodeBitfield, valueStates };

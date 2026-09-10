@@ -117,9 +117,6 @@
     "type": "energy",
     "compact": true,
     "messagebox": true,
-    "supportedMessages": {
-      "custom": true
-    },
     "connectionType": "local",
     "dataSource": "poll",
     "adminUI": {

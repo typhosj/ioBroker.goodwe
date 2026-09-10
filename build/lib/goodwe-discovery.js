@@ -9,7 +9,6 @@ exports.clampDiscoveryConcurrency = clampDiscoveryConcurrency;
 exports.clampProbeTimeout = clampProbeTimeout;
 exports.discoverGoodWeInverters = discoverGoodWeInverters;
 exports.extractIpv4Address = extractIpv4Address;
-exports.formatInverterOption = formatInverterOption;
 exports.getDiscoveryCandidates = getDiscoveryCandidates;
 exports.getIpv4CandidatesFromSubnet = getIpv4CandidatesFromSubnet;
 exports.isGoodWeIdInfoResponse = isGoodWeIdInfoResponse;
@@ -18,6 +17,7 @@ exports.probeGoodWeInverter = probeGoodWeInverter;
 exports.validateIpv4Address = validateIpv4Address;
 const node_dgram_1 = __importDefault(require("node:dgram"));
 const node_os_1 = __importDefault(require("node:os"));
+const config_1 = require("./config");
 const errors_1 = require("./errors");
 const GOODWE_PORT = 8899;
 exports.GOODWE_PORT = GOODWE_PORT;
@@ -25,6 +25,7 @@ const DEFAULT_PROBE_TIMEOUT_MS = 700;
 const DEFAULT_DISCOVERY_CONCURRENCY = 32;
 const MIN_PROBE_TIMEOUT_MS = 100;
 const MAX_PROBE_TIMEOUT_MS = 10000;
+const MAX_DISCOVERY_SUBNETS = 4;
 function validateIpv4Address(ip) {
     if (typeof ip !== "string") {
         return { valid: false, reason: "IP address must be a string" };
@@ -231,33 +232,13 @@ async function discoverGoodWeInverters(options = {}) {
         found,
     };
 }
+// Both take 0 and "" as "not set", so an admin form that sends an empty field
+// gets the default instead of the smallest allowed value.
 function clampProbeTimeout(value) {
-    const timeoutMs = Number(value) || DEFAULT_PROBE_TIMEOUT_MS;
-    return Math.min(MAX_PROBE_TIMEOUT_MS, Math.max(MIN_PROBE_TIMEOUT_MS, Math.floor(timeoutMs)));
+    return (0, config_1.clampNumber)(Number(value) || DEFAULT_PROBE_TIMEOUT_MS, DEFAULT_PROBE_TIMEOUT_MS, MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS);
 }
 function clampDiscoveryConcurrency(value) {
-    const concurrency = Number(value) || DEFAULT_DISCOVERY_CONCURRENCY;
-    return Math.min(254, Math.max(1, Math.floor(concurrency)));
-}
-function formatInverterOption(result) {
-    const idInfo = result.idInfo ?? {};
-    const firmwareVersion = isPlausibleVersionText(idInfo.firmwareVersion)
-        ? idInfo.firmwareVersion
-        : undefined;
-    const labelParts = [
-        result.ip,
-        idInfo.modelName,
-        idInfo.serialNumber ? `SN ${idInfo.serialNumber}` : undefined,
-        firmwareVersion ? `FW ${firmwareVersion}` : undefined,
-        idInfo.internalVersion,
-    ].filter(Boolean);
-    return {
-        value: result.ip,
-        label: labelParts.join(" | "),
-    };
-}
-function isPlausibleVersionText(value) {
-    return typeof value === "string" && /^[A-Za-z0-9._-]{2,20}$/.test(value);
+    return (0, config_1.clampNumber)(Number(value) || DEFAULT_DISCOVERY_CONCURRENCY, DEFAULT_DISCOVERY_CONCURRENCY, 1, 254);
 }
 function getDiscoveryCandidates(options = {}) {
     if (options.subnet) {
@@ -265,6 +246,8 @@ function getDiscoveryCandidates(options = {}) {
     }
     const subnets = new Set();
     const validation = validateIpv4Address(options.ip);
+    // Insertion order decides which subnets survive the cap, so the configured
+    // address goes first - it is the one the user actually cares about.
     if (validation.valid) {
         subnets.add(getSubnetFromOctets(validation.octets));
     }
@@ -276,7 +259,11 @@ function getDiscoveryCandidates(options = {}) {
             }
         }
     }
-    return Array.from(subnets).flatMap((subnet) => getIpv4CandidatesFromSubnet(subnet));
+    // Container bridges and VPN adapters all count as external, so an unbounded
+    // scan can mean thousands of probes for a host that has one real network.
+    return Array.from(subnets)
+        .slice(0, MAX_DISCOVERY_SUBNETS)
+        .flatMap((subnet) => getIpv4CandidatesFromSubnet(subnet));
 }
 function getSubnetFromOctets(octets) {
     return `${octets.slice(0, 3).join(".")}.0/24`;

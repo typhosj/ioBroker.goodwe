@@ -57,9 +57,9 @@ class Goodwe extends utils.Adapter {
     await this.states.SetConnection(false);
 
     if (this.states.IsControlEnabled()) {
-      for (const state of writableStateIds()) {
-        this.subscribeStates(state);
-      }
+      await Promise.all(
+        writableStateIds().map((state) => this.subscribeStatesAsync(state)),
+      );
 
       this.log.info("Inverter control enabled, writable settings subscribed");
     }

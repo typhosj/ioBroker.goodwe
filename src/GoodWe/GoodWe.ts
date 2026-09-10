@@ -1,5 +1,10 @@
 import dgram from "node:dgram";
-import { errorMessage } from "../lib/errors";
+import { clampNumber } from "../lib/config";
+import { errorMessage, ModbusExceptionError } from "../lib/errors";
+import {
+  buildIdInfoRequest,
+  isGoodWeIdInfoResponse,
+} from "../lib/goodwe-discovery";
 import {
   registerGroups,
   type RegisterEntry,
@@ -17,7 +22,11 @@ interface ReadGroupOptions {
 }
 
 interface PendingRequest {
+  name: string;
   matcher: (data: Buffer) => boolean;
+  // Returns the Modbus exception code when the frame is a rejection of this
+  // request, null otherwise.
+  exception: (data: Buffer) => number | null;
   resolve: (data: Buffer) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout | null;
@@ -25,50 +34,18 @@ interface PendingRequest {
 
 type ModelValue = string | number | Date | Uint8Array | Record<string, unknown>;
 
-export class GoodWePacket {
-  static Format = { Packet: 7, Checksum: 2 };
-  static Header = { High: 0xaa, Low: 0x55 };
-  static Addr = { AP: 0xc0, Inverter: 0x7f };
-  static CtrCode = { Register: 0x00, Read: 0x01, Execute: 0x03 };
-  static FcCodeRegister = {
-    Offline: 0x00,
-    RegisterRequest: 0x80,
-    AllocateRegisterAddr: 0x01,
-    AddressConfirm: 0x81,
-    RemoveRegister: 0x02,
-    RemoveConfirm: 0x82,
-  };
-  static FcCodeRead = {
-    QueryRunningInfo: 0x01,
-    ResponseRunningInfo: 0x81,
-    QueryIdInfo: 0x02,
-    ResponseIdInfo: 0x82,
-    QuerySettingInfo: 0x03,
-    ResponseSettingInfo: 0x83,
-  };
-}
-
 export class GoodWeRegister {
   static Format = { Frame: 5, CRC16: 2 };
   static RecvHeader = { High: 0xaa, Low: 0x55 };
   static Addr = { Inverter: 0xf7 };
-  static FcDode = {
+  static FcCode = {
     Read: 0x03,
     WriteSingleRegister: 0x06,
-    WriteMultipleRegister: 0x09,
   };
   // Header, address, function code, register address and value, without CRC.
   static WriteResponse = { Length: 10 };
-}
-
-export class GoodWeIdInfo {
-  FirmwareVersion = "";
-  ModelName = "";
-  Na = new Uint8Array(16);
-  SerialNumber = "";
-  NomVpv = 0.0;
-  InternalVersion = "";
-  SafetyCountryCode = 0x00;
+  // Header, address, function code, exception code and CRC.
+  static ExceptionResponse = { Length: 7, FcFlag: 0x80 };
 }
 
 export class GoodWeDeviceInfo {
@@ -229,7 +206,11 @@ export class GoodWeUdp {
   #optionalGroupBackoffUntil = new Map<string, number>();
   #timeoutMs = GoodWeUdp.DefaultTimeoutMs;
   #retries = GoodWeUdp.DefaultRetries;
-  #idInfo = new GoodWeIdInfo();
+  #closed = false;
+  // Serializes every UDP request. The protocol has no transaction id, so two
+  // requests in flight at once can only be told apart by function code and
+  // payload length - and a timeout of one rebinds the socket of the other.
+  #queue: Promise<unknown> = Promise.resolve();
   #deviceInfo = new GoodWeDeviceInfo();
   #runningData = new GoodWeRunningData();
   #extComData = new GoodWeExternalComData();
@@ -276,6 +257,16 @@ export class GoodWeUdp {
   // timeout gives the next request a fresh source port, so answers to the
   // abandoned one can no longer reach it.
   #resetSocket(): void {
+    this.#closeSocket();
+
+    // After destructor() a rebind would resurrect the socket the adapter just
+    // released, so a queued request must not create a new one.
+    if (!this.#closed) {
+      this.#client = this.#createSocket();
+    }
+  }
+
+  #closeSocket(): void {
     const previous = this.#client;
 
     previous.removeAllListeners();
@@ -285,16 +276,17 @@ export class GoodWeUdp {
     } catch {
       // Already closed or never bound - nothing to release.
     }
-
-    this.#client = this.#createSocket();
   }
 
   destructor(): void {
+    this.#closed = true;
+
     for (const request of this.#pendingRequests.splice(0)) {
       this.#clearPendingRequest(request);
       request.reject(new Error("Socket closed"));
     }
-    this.#client.close();
+
+    this.#closeSocket();
   }
 
   Connect(
@@ -321,17 +313,31 @@ export class GoodWeUdp {
   }
 
   #handleMessage(rcvbuf: Buffer): void {
-    const requestIndex = this.#pendingRequests.findIndex((request) =>
-      request.matcher(rcvbuf),
+    const requestIndex = this.#pendingRequests.findIndex(
+      (request) =>
+        request.matcher(rcvbuf) || request.exception(rcvbuf) !== null,
     );
 
     if (requestIndex === -1) {
-      this.log.debug?.(`Ignoring unmatched UDP frame (${rcvbuf.length} bytes)`);
+      // Head and waiting requests, because the 1024 byte frames seen at night
+      // arrive 1255 ms after a RunningData request and are the only lead on
+      // whether this is a rejected answer or foreign traffic on the port.
+      this.log.debug?.(
+        `Ignoring unmatched UDP frame (${rcvbuf.length} bytes, pending: ${this.#pendingRequests.map((request) => request.name).join(",") || "none"}): ${rcvbuf.subarray(0, 16).toString("hex")}`,
+      );
       return;
     }
 
     const [request] = this.#pendingRequests.splice(requestIndex, 1);
+    const exceptionCode = request.exception(rcvbuf);
+
     this.#clearPendingRequest(request);
+
+    if (exceptionCode !== null) {
+      request.reject(new ModbusExceptionError(request.name, exceptionCode));
+      return;
+    }
+
     request.resolve(rcvbuf);
   }
 
@@ -362,18 +368,48 @@ export class GoodWeUdp {
     });
   }
 
-  async #request(
+  /**
+   * Queues a request so only one is ever in flight.
+   *
+   * @param sendbuf request frame
+   * @param matcher accepts the answer belonging to this request
+   * @param name request name, used for logging and error messages
+   * @param exception reads the Modbus exception code out of a rejection frame
+   */
+  #request(
     sendbuf: Uint8Array,
     matcher: (data: Buffer) => boolean,
     name: string,
+    exception: (data: Buffer) => number | null = () => null,
+  ): Promise<Buffer> {
+    const run = (): Promise<Buffer> =>
+      this.#requestNow(sendbuf, matcher, name, exception);
+    const next = this.#queue.then(run, run);
+
+    this.#queue = next.catch(() => undefined);
+
+    return next;
+  }
+
+  async #requestNow(
+    sendbuf: Uint8Array,
+    matcher: (data: Buffer) => boolean,
+    name: string,
+    exception: (data: Buffer) => number | null,
   ): Promise<Buffer> {
     let lastError;
+
+    if (this.#closed) {
+      throw new Error("Socket closed");
+    }
 
     for (let attempt = 0; attempt <= this.#retries; attempt++) {
       try {
         const response = await new Promise<Buffer>((resolve, reject) => {
           const request: PendingRequest = {
+            name,
             matcher,
+            exception,
             resolve,
             reject,
             timeout: null,
@@ -411,6 +447,14 @@ export class GoodWeUdp {
         return response;
       } catch (error) {
         lastError = error;
+
+        // A rejection is an answer: the inverter is reachable, and repeating a
+        // request it declined only costs another timeout.
+        if (error instanceof ModbusExceptionError) {
+          this.#status = GoodWeUdp.ConStatus.Online;
+          throw error;
+        }
+
         this.#status = GoodWeUdp.ConStatus.Offline;
 
         if (attempt < this.#retries) {
@@ -426,7 +470,7 @@ export class GoodWeUdp {
     const sendbuf = new Uint8Array(8);
 
     sendbuf[0] = GoodWeRegister.Addr.Inverter;
-    sendbuf[1] = GoodWeRegister.FcDode.Read;
+    sendbuf[1] = GoodWeRegister.FcCode.Read;
     sendbuf[2] = start >> 8;
     sendbuf[3] = start & 0x00ff;
     sendbuf[4] = count >> 8;
@@ -448,6 +492,7 @@ export class GoodWeUdp {
       sendbuf,
       (data) => this.#CheckRecRegisterData(data, sendbuf[1], sendbuf[5]),
       group.name,
+      (data) => this.#ExceptionCode(data, sendbuf[1]),
     );
 
     for (const item of group.entries) {
@@ -524,23 +569,13 @@ export class GoodWeUdp {
     const group = registerGroups[groupName];
     const isOptional = options.optional === true;
     const backoffUntil = this.#optionalGroupBackoffUntil.get(groupName) ?? 0;
-    const targets: Record<string, object> = {
-      deviceInfo: this.#deviceInfo,
-      runningData: this.#runningData,
-      extComData: this.#extComData,
-      bmsInfo: this.#bmsInfo,
-      deviceSimccid: this.#deviceInfo,
-      extComDataExtended: this.#extComData,
-      flashInfo: this.#flashInfo,
-      bmsInfoExtended: this.#bmsInfo,
-      bmsDetail: this.#bmsDetail,
-      ceiAutoTest: this.#ceiAutoTest,
-      powerLimit: this.#powerLimit,
-      settingsBattery: this.#settings,
-      settingsEms: this.#settings,
-    };
+    // The group names the getter holding its values, and every getter hands out
+    // the object itself, so parsing into it updates what states.ts reads later.
+    const target = group
+      ? (this as unknown as Record<string, object | undefined>)[group.target]
+      : undefined;
 
-    if (!group || !targets[groupName]) {
+    if (!group || !target) {
       this.log.warn(`Unknown register group: ${groupName}`);
       return false;
     }
@@ -552,7 +587,7 @@ export class GoodWeUdp {
     const previousStatus = this.#status;
 
     try {
-      await this.#readRegisterGroup(group, targets[groupName]);
+      await this.#readRegisterGroup(group, target);
       this.#optionalGroupBackoffUntil.delete(groupName);
 
       if (groupName === "runningData") {
@@ -584,7 +619,7 @@ export class GoodWeUdp {
     const sendbuf = new Uint8Array(8);
 
     sendbuf[0] = GoodWeRegister.Addr.Inverter;
-    sendbuf[1] = GoodWeRegister.FcDode.WriteSingleRegister;
+    sendbuf[1] = GoodWeRegister.FcCode.WriteSingleRegister;
     sendbuf[2] = address >> 8;
     sendbuf[3] = address & 0x00ff;
     sendbuf[4] = value >> 8;
@@ -611,6 +646,7 @@ export class GoodWeUdp {
         sendbuf,
         (data) => this.#CheckRecWriteData(data, address, value),
         `WriteRegister ${address}`,
+        (data) => this.#ExceptionCode(data, sendbuf[1]),
       );
 
       return true;
@@ -620,44 +656,21 @@ export class GoodWeUdp {
     }
   }
 
+  /**
+   * Asks the inverter for its ID info and uses the answer as a liveness check.
+   *
+   * The parsed fields are not surfaced as states, so the frame is only built
+   * and validated - both with the helpers the admin discovery already uses.
+   */
   async ReadIdInfo(): Promise<boolean> {
-    const sendbuf = new Uint8Array(9);
     const wasOnline = this.#status === GoodWeUdp.ConStatus.Online;
-    let i;
-    let crc = 0;
-
-    sendbuf[0] = GoodWePacket.Header.High;
-    sendbuf[1] = GoodWePacket.Header.Low;
-    sendbuf[2] = GoodWePacket.Addr.AP;
-    sendbuf[3] = GoodWePacket.Addr.Inverter;
-    sendbuf[4] = GoodWePacket.CtrCode.Read;
-    sendbuf[5] = GoodWePacket.FcCodeRead.QueryIdInfo;
-    sendbuf[6] = 0;
-
-    for (i = 0; i <= 6; i++) {
-      crc = crc + sendbuf[i];
-    }
-
-    sendbuf[7] = crc >> 8;
-    sendbuf[8] = crc & 0x00ff;
 
     try {
-      const rcvbuf = await this.#request(
-        sendbuf,
-        (data) => this.#CheckRecPacket(data, sendbuf[4], sendbuf[5]),
+      await this.#request(
+        buildIdInfoRequest(),
+        (data) => isGoodWeIdInfoResponse(data),
         "ReadIdInfo",
       );
-      this.#idInfo.FirmwareVersion = this.#GetStringFromByteArray(rcvbuf, 7, 5);
-      this.#idInfo.ModelName = this.#GetStringFromByteArray(rcvbuf, 12, 10);
-      this.#idInfo.Na = rcvbuf.slice(22, 37);
-      this.#idInfo.SerialNumber = this.#GetStringFromByteArray(rcvbuf, 38, 16);
-      this.#idInfo.NomVpv = this.#GetUintFromByteArray(rcvbuf, 54, 4) / 10;
-      this.#idInfo.InternalVersion = this.#GetStringFromByteArray(
-        rcvbuf,
-        58,
-        12,
-      );
-      this.#idInfo.SafetyCountryCode = rcvbuf[70];
 
       return true;
     } catch (error) {
@@ -673,59 +686,41 @@ export class GoodWeUdp {
     }
   }
 
-  async ReadDeviceInfo(): Promise<boolean> {
-    return this.ReadGroup("deviceInfo");
-  }
+  /**
+   * Reads the Modbus exception code out of a rejection frame.
+   *
+   * A rejected request is answered with the function code plus 0x80 instead of
+   * the expected payload. Without this the frame matches no request and the
+   * caller waits out the full timeout of every retry before it learns anything.
+   *
+   * @param Data received frame
+   * @param FctCode function code of the request
+   */
+  #ExceptionCode(Data: Uint8Array, FctCode: number): number | null {
+    // Padded datagrams reach this check too, so the fixed frame length decides,
+    // not the datagram length.
+    if (Data.length < GoodWeRegister.ExceptionResponse.Length) {
+      return null;
+    }
 
-  async ReadRunningData(): Promise<boolean> {
-    return this.ReadGroup("runningData");
-  }
-
-  async ReadExtComData(): Promise<boolean> {
-    return this.ReadGroup("extComData");
-  }
-
-  async ReadBmsInfo(): Promise<boolean> {
-    return this.ReadGroup("bmsInfo");
-  }
-
-  #CheckRecPacket(Data: Uint8Array, CtrCode: number, FctCode: number): boolean {
-    let packetFormat = new Uint8Array(GoodWePacket.Format.Packet);
-    let packetCrc = new Uint8Array(GoodWePacket.Format.Checksum);
-    let i;
-    let crc = 0;
-
-    packetFormat = Data.slice(0, GoodWePacket.Format.Packet);
-    packetCrc = Data.slice(
-      Data.length - GoodWePacket.Format.Checksum,
-      Data.length,
+    const crc = this.#CalculatetCrc16(
+      Data,
+      2,
+      GoodWeRegister.ExceptionResponse.Length - GoodWeRegister.Format.CRC16 - 2,
     );
 
-    for (i = 0; i < Data.length - GoodWePacket.Format.Checksum; i++) {
-      crc = crc + Data[i];
+    if (
+      Data[0] !== GoodWeRegister.RecvHeader.High ||
+      Data[1] !== GoodWeRegister.RecvHeader.Low ||
+      Data[2] !== GoodWeRegister.Addr.Inverter ||
+      Data[3] !== (FctCode | GoodWeRegister.ExceptionResponse.FcFlag) ||
+      Data[5] !== crc >> 8 ||
+      Data[6] !== (crc & 0x00ff)
+    ) {
+      return null;
     }
 
-    const high = crc >> 8;
-    const low = crc & 0x00ff;
-
-    if (packetCrc[0] == high && packetCrc[1] == low) {
-      if (
-        packetFormat[0] == GoodWePacket.Header.High &&
-        packetFormat[1] == GoodWePacket.Header.Low
-      ) {
-        if (
-          packetFormat[2] == GoodWePacket.Addr.Inverter &&
-          packetFormat[3] == GoodWePacket.Addr.AP
-        ) {
-          if (packetFormat[4] == CtrCode) {
-            if (packetFormat[5] == (FctCode | 0x80)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
+    return Data[4];
   }
 
   // A write answer is a fixed length echo of the request, so it carries no
@@ -749,7 +744,7 @@ export class GoodWeUdp {
       Data[0] === GoodWeRegister.RecvHeader.High &&
       Data[1] === GoodWeRegister.RecvHeader.Low &&
       Data[2] === GoodWeRegister.Addr.Inverter &&
-      Data[3] === GoodWeRegister.FcDode.WriteSingleRegister &&
+      Data[3] === GoodWeRegister.FcCode.WriteSingleRegister &&
       Data[4] === address >> 8 &&
       Data[5] === (address & 0x00ff) &&
       Data[6] === value >> 8 &&
@@ -764,20 +759,29 @@ export class GoodWeUdp {
     FctCode: number,
     Length: number,
   ): boolean {
-    let registerFrame = new Uint8Array(GoodWeRegister.Format.Frame);
-    let registerCrc = new Uint8Array(GoodWeRegister.Format.CRC16);
-    let crc = 0;
+    // The dongle pads: the 257 byte running data answer arrives in a 1024 byte
+    // datagram. Reading the CRC from the end of the datagram then fails and the
+    // request runs into its timeout although the answer is right there - 63
+    // times in 16.5 hours, every single one of them followed by a retry. So the
+    // frame length comes from the request, not from the datagram, and trailing
+    // bytes are ignored the same way #CheckRecWriteData already ignores them.
+    const frameLength =
+      GoodWeRegister.Format.Frame + Length * 2 + GoodWeRegister.Format.CRC16;
 
-    registerFrame = Data.slice(0, GoodWeRegister.Format.Frame);
-    registerCrc = Data.slice(
-      Data.length - GoodWeRegister.Format.CRC16,
-      Data.length,
+    if (Data.length < frameLength) {
+      return false;
+    }
+
+    const registerFrame = Data.slice(0, GoodWeRegister.Format.Frame);
+    const registerCrc = Data.slice(
+      frameLength - GoodWeRegister.Format.CRC16,
+      frameLength,
     );
 
-    crc = this.#CalculatetCrc16(
+    const crc = this.#CalculatetCrc16(
       Data,
       2,
-      Data.length - GoodWeRegister.Format.CRC16 - 2,
+      frameLength - GoodWeRegister.Format.CRC16 - 2,
     );
 
     if (registerCrc[0] == crc >> 8 && registerCrc[1] == (crc & 0x00ff)) {
@@ -814,19 +818,9 @@ export class GoodWeUdp {
     Start: number,
     Length: number,
   ): number {
-    let buf = new Uint8Array(Length);
-    let i;
-    let value = 0;
-
-    buf = Data.slice(Start, Start + Length);
-
-    for (i = 0; i < Length; i++) {
-      // Multiply instead of "<< 8": the shift truncates to int32, so U32
-      // registers with bit 31 set would be reported as negative values.
-      value = value * 256 + buf[i];
-    }
-
-    return value;
+    // readUIntBE, not a shift loop: "<< 8" truncates to int32, so U32 registers
+    // with bit 31 set would be reported as negative values.
+    return Buffer.from(Data.slice(Start, Start + Length)).readUIntBE(0, Length);
   }
 
   #GetIntFromByteArray(
@@ -842,18 +836,7 @@ export class GoodWeUdp {
     Start: number,
     Length: number,
   ): number {
-    let buf = new Uint8Array(Length);
-
-    buf = Data.slice(Start, Start + Length);
-
-    const bits = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-    //var bits = 0b10111101111110111110011101101101; // = -0,123;
-    const sign = bits >>> 31 === 0 ? 1.0 : -1.0;
-    const e = (bits >>> 23) & 0xff;
-    const m = e === 0 ? (bits & 0x7fffff) << 1 : (bits & 0x7fffff) | 0x800000;
-    const f = sign * m * Math.pow(2, e - 150);
-
-    return f;
+    return Buffer.from(Data.slice(Start, Start + Length)).readFloatBE(0);
   }
 
   #CalculatetCrc16(Data: Uint8Array, Start: number, Length: number): number {
@@ -881,10 +864,6 @@ export class GoodWeUdp {
 
   get Status(): boolean {
     return this.#status;
-  }
-
-  get IdInfo(): GoodWeIdInfo {
-    return this.#idInfo;
   }
 
   get DeviceInfo(): GoodWeDeviceInfo {
@@ -922,17 +901,4 @@ export class GoodWeUdp {
   get Settings(): Record<string, unknown> {
     return this.#settings;
   }
-}
-
-function clampNumber(
-  value: number | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return fallback;
-  }
-
-  return Math.min(max, Math.max(min, Math.floor(value)));
 }

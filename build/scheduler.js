@@ -9,11 +9,16 @@ const ReconnectDelay = {
     // Skipped 1s ticks between reconnect attempts while the inverter is offline.
     Max: 60,
 };
+// Seconds between two reads of the live data: running data, meter and BMS.
 const PollCycle = {
     Default: 10,
-    Min: 10,
+    Min: 2,
     Max: 3600,
 };
+// Target seconds between two optional group reads. The optional groups hold
+// settings and diagnostics that barely move, so they share one slot and are
+// read round robin instead of on the live cycle.
+const OptionalGroupIntervalSeconds = 30;
 class PollScheduler {
     adapter;
     poll;
@@ -65,8 +70,11 @@ class GoodWePollScheduler {
     inverter;
     states;
     cycleCnt = 0;
+    slowCnt = 0;
     reconnectDelay = 0;
     reconnectSkips = 0;
+    deviceInfoRead = false;
+    optionalGroupIndex = 0;
     scheduler;
     constructor(adapter, inverter, states, intervalMs) {
         this.adapter = adapter;
@@ -84,6 +92,10 @@ class GoodWePollScheduler {
         try {
             if (this.inverter.Status == false) {
                 this.cycleCnt = 0;
+                this.slowCnt = 0;
+                // A reconnect can mean a different inverter or new firmware, so the
+                // static device data is read again once the connection is back.
+                this.deviceInfoRead = false;
                 if (this.reconnectSkips > 0) {
                     this.reconnectSkips--;
                     return;
@@ -102,29 +114,35 @@ class GoodWePollScheduler {
                 this.reconnectSkips = this.reconnectDelay;
             }
             else {
-                switch (this.cycleCnt) {
-                    case 1:
-                        await this.UpdateDeviceInfo();
-                        break;
-                    case 3:
-                        await this.UpdateRunningData();
-                        break;
-                    case 5:
-                        await this.UpdateExtComData();
-                        break;
-                    case 7:
-                        await this.UpdateBmsInfo();
-                        break;
-                    case 9:
-                        if ((0, config_1.normalizeBoolean)(this.adapter.config.pollExtended, true)) {
-                            await this.UpdateAdditionalRegisterGroups();
-                        }
-                        break;
+                // The scheduler ticks once a second; the configured cycle decides how
+                // many of those ticks are idle.
+                if (this.cycleCnt > 0) {
+                    this.cycleCnt--;
+                    return;
                 }
-                if (this.cycleCnt >= clampPollCycle(this.adapter.config.pollCycle)) {
-                    this.cycleCnt = 0;
+                const pollCycle = clampPollCycle(this.adapter.config.pollCycle);
+                this.cycleCnt = pollCycle - 1;
+                // Order matters on a weak link. Measured over 527 cycles, the first
+                // request after the idle gap lost 3.6 % of its answers while the two
+                // behind it lost 0.4 % and 1.5 %, at an identical request count. The
+                // small BMS read goes first so a lost first answer costs the least,
+                // and so the next measurement tells position and response size apart:
+                // if the loss follows this slot, it is the idle gap, not the 257 byte
+                // running data frame.
+                await this.UpdateDeviceInfo();
+                await this.UpdateBmsInfo();
+                await this.UpdateRunningData();
+                await this.UpdateExtComData();
+                if (!(0, config_1.normalizeBoolean)(this.adapter.config.pollExtended, true)) {
+                    return;
                 }
-                this.cycleCnt++;
+                if (this.slowCnt > 0) {
+                    this.slowCnt--;
+                    return;
+                }
+                this.slowCnt =
+                    Math.max(1, Math.ceil(OptionalGroupIntervalSeconds / pollCycle)) - 1;
+                await this.UpdateAdditionalRegisterGroups();
             }
         }
         catch (error) {
@@ -132,12 +150,24 @@ class GoodWePollScheduler {
             await this.states.SetConnection(false);
         }
     }
+    /**
+     * Reads the static device data once per connection.
+     *
+     * Serial number, model, firmware and rated power do not change while the
+     * adapter runs. Re-reading them every cycle only added UDP requests that can
+     * be lost, so later cycles just refresh the connection indicator.
+     */
     async UpdateDeviceInfo() {
+        if (this.deviceInfoRead) {
+            await this.states.SetConnection(this.inverter.Status);
+            return;
+        }
         const success = await this.inverter.ReadGroup("deviceInfo");
         if (!success) {
             await this.states.SetConnection(false);
             return;
         }
+        this.deviceInfoRead = true;
         await this.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups.deviceInfo);
         await this.states.SetConnection(this.inverter.Status);
     }
@@ -168,27 +198,33 @@ class GoodWePollScheduler {
         await this.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups.bmsInfo);
         await this.states.UpdateDecodedBmsStatuses();
     }
+    /**
+     * Reads one optional register group per cycle, round robin.
+     *
+     * Reading all of them in one burst was the largest block of UDP traffic the
+     * adapter produced, and every request in it can be lost. Spreading them out
+     * costs each group a slower refresh and cuts the request count per minute to
+     * a fraction; none of these groups changes fast enough to notice.
+     */
     async UpdateAdditionalRegisterGroups() {
-        for (const groupName of Object.keys(register_map_1.optionalGroupConfigs)) {
-            if (!this.states.IsRegisterGroupEnabled(groupName)) {
-                continue;
-            }
-            const group = register_map_1.registerGroups[groupName];
-            const success = await this.inverter.ReadGroup(groupName, {
-                optional: true,
-            });
-            if (success) {
-                await this.states.UpdateStatesFromRegisterMap(group);
+        const enabled = Object.keys(register_map_1.optionalGroupConfigs).filter((groupName) => this.states.IsRegisterGroupEnabled(groupName));
+        if (enabled.length === 0) {
+            return;
+        }
+        const groupName = enabled[this.optionalGroupIndex % enabled.length];
+        this.optionalGroupIndex = (this.optionalGroupIndex + 1) % enabled.length;
+        if (await this.inverter.ReadGroup(groupName, { optional: true })) {
+            await this.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
+            // Only this group adds the high words the decoder needs; the base group
+            // already decodes itself in UpdateBmsInfo().
+            if (groupName === "bmsInfoExtended") {
+                await this.states.UpdateDecodedBmsStatuses();
             }
         }
-        await this.states.UpdateDecodedBmsStatuses();
         await this.states.SetConnection(this.inverter.Status);
     }
 }
 exports.GoodWePollScheduler = GoodWePollScheduler;
 function clampPollCycle(value) {
-    if (value === undefined || !Number.isFinite(value)) {
-        return PollCycle.Default;
-    }
-    return Math.min(PollCycle.Max, Math.max(PollCycle.Min, Math.floor(value)));
+    return (0, config_1.clampNumber)(value, PollCycle.Default, PollCycle.Min, PollCycle.Max);
 }

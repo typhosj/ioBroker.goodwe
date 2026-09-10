@@ -42,7 +42,7 @@
     "Request timed out": "Richiesta scaduta",
     "Retries": "Tentativi",
     "Searching...": "Ricerca...",
-    "Seconds, 10-3600": "Secondi, 10-3600",
+    "Seconds, 2-3600": "Secondi, 2-3600",
     "Timeout": "Timeout",
     "Use": "Usa",
     "Validate inverter IP": "Verifica IP inverter"

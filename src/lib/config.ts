@@ -39,6 +39,32 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 /**
+ * Clamps a stored config number into its allowed integer range.
+ *
+ * Anything that is not a finite number falls back, so a missing or mistyped
+ * option keeps the io-package default instead of turning into NaN.
+ *
+ * @param value stored config value
+ * @param fallback value used when the config holds no usable number
+ * @param min lowest accepted value
+ * @param max highest accepted value
+ */
+function clampNumber(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
+
+/**
  * Normalizes every boolean option of a stored native config in place.
  *
  * Admin UI normalization does not protect configs written before the React UI
@@ -53,4 +79,9 @@ function normalizeBooleanConfig(config: Record<string, unknown>): void {
   }
 }
 
-export { booleanDefaults, normalizeBoolean, normalizeBooleanConfig };
+export {
+  booleanDefaults,
+  clampNumber,
+  normalizeBoolean,
+  normalizeBooleanConfig,
+};

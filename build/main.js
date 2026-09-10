@@ -75,9 +75,7 @@ class Goodwe extends utils.Adapter {
         await this.states.InitializeObjects();
         await this.states.SetConnection(false);
         if (this.states.IsControlEnabled()) {
-            for (const state of (0, control_1.writableStateIds)()) {
-                this.subscribeStates(state);
-            }
+            await Promise.all((0, control_1.writableStateIds)().map((state) => this.subscribeStatesAsync(state)));
             this.log.info("Inverter control enabled, writable settings subscribed");
         }
         const configuredIp = (0, goodwe_discovery_1.extractIpv4Address)(this.config.ipAddr);

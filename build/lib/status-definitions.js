@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.valueStates = exports.bitfields = void 0;
 exports.decodeBitfield = decodeBitfield;
-exports.decodeValue = decodeValue;
 const valueStates = {
     pvMode: {
         0: "No PV",
@@ -179,9 +178,6 @@ const bitfields = {
     ],
 };
 exports.bitfields = bitfields;
-function decodeValue(value, states) {
-    return states[value] ?? `Unknown (${value})`;
-}
 function decodeBitfield(value, definitions) {
     return definitions.filter((_, bit) => (value & (2 ** bit)) !== 0);
 }

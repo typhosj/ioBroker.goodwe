@@ -42,7 +42,7 @@
     "Request timed out": "Żądanie przekroczyło limit czasu",
     "Retries": "Ponowienia",
     "Searching...": "Wyszukiwanie...",
-    "Seconds, 10-3600": "Sekundy, 10-3600",
+    "Seconds, 2-3600": "Sekundy, 2-3600",
     "Timeout": "Limit czasu",
     "Use": "Użyj",
     "Validate inverter IP": "Sprawdź IP falownika"

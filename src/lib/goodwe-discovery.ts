@@ -2,6 +2,7 @@
 
 import dgram from "node:dgram";
 import os from "node:os";
+import { clampNumber } from "./config";
 import { errorMessage } from "./errors";
 
 const GOODWE_PORT = 8899;
@@ -9,6 +10,7 @@ const DEFAULT_PROBE_TIMEOUT_MS = 700;
 const DEFAULT_DISCOVERY_CONCURRENCY = 32;
 const MIN_PROBE_TIMEOUT_MS = 100;
 const MAX_PROBE_TIMEOUT_MS = 10000;
+const MAX_DISCOVERY_SUBNETS = 4;
 
 interface LoggerLike {
   debug?: (message: string) => void;
@@ -312,45 +314,24 @@ async function discoverGoodWeInverters(
   };
 }
 
+// Both take 0 and "" as "not set", so an admin form that sends an empty field
+// gets the default instead of the smallest allowed value.
 function clampProbeTimeout(value: unknown): number {
-  const timeoutMs = Number(value) || DEFAULT_PROBE_TIMEOUT_MS;
-
-  return Math.min(
+  return clampNumber(
+    Number(value) || DEFAULT_PROBE_TIMEOUT_MS,
+    DEFAULT_PROBE_TIMEOUT_MS,
+    MIN_PROBE_TIMEOUT_MS,
     MAX_PROBE_TIMEOUT_MS,
-    Math.max(MIN_PROBE_TIMEOUT_MS, Math.floor(timeoutMs)),
   );
 }
 
 function clampDiscoveryConcurrency(value: unknown): number {
-  const concurrency = Number(value) || DEFAULT_DISCOVERY_CONCURRENCY;
-
-  return Math.min(254, Math.max(1, Math.floor(concurrency)));
-}
-
-function formatInverterOption(result: ProbeResult): {
-  value: string;
-  label: string;
-} {
-  const idInfo: Partial<IdInfo> = result.idInfo ?? {};
-  const firmwareVersion = isPlausibleVersionText(idInfo.firmwareVersion)
-    ? idInfo.firmwareVersion
-    : undefined;
-  const labelParts = [
-    result.ip,
-    idInfo.modelName,
-    idInfo.serialNumber ? `SN ${idInfo.serialNumber}` : undefined,
-    firmwareVersion ? `FW ${firmwareVersion}` : undefined,
-    idInfo.internalVersion,
-  ].filter(Boolean);
-
-  return {
-    value: result.ip,
-    label: labelParts.join(" | "),
-  };
-}
-
-function isPlausibleVersionText(value: unknown): boolean {
-  return typeof value === "string" && /^[A-Za-z0-9._-]{2,20}$/.test(value);
+  return clampNumber(
+    Number(value) || DEFAULT_DISCOVERY_CONCURRENCY,
+    DEFAULT_DISCOVERY_CONCURRENCY,
+    1,
+    254,
+  );
 }
 
 function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
@@ -361,6 +342,8 @@ function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
   const subnets = new Set<string>();
   const validation = validateIpv4Address(options.ip);
 
+  // Insertion order decides which subnets survive the cap, so the configured
+  // address goes first - it is the one the user actually cares about.
   if (validation.valid) {
     subnets.add(getSubnetFromOctets(validation.octets));
   }
@@ -375,9 +358,11 @@ function getDiscoveryCandidates(options: DiscoveryOptions = {}): string[] {
     }
   }
 
-  return Array.from(subnets).flatMap((subnet) =>
-    getIpv4CandidatesFromSubnet(subnet),
-  );
+  // Container bridges and VPN adapters all count as external, so an unbounded
+  // scan can mean thousands of probes for a host that has one real network.
+  return Array.from(subnets)
+    .slice(0, MAX_DISCOVERY_SUBNETS)
+    .flatMap((subnet) => getIpv4CandidatesFromSubnet(subnet));
 }
 
 function getSubnetFromOctets(octets: number[]): string {
@@ -415,7 +400,6 @@ export {
   clampProbeTimeout,
   discoverGoodWeInverters,
   extractIpv4Address,
-  formatInverterOption,
   getDiscoveryCandidates,
   getIpv4CandidatesFromSubnet,
   isGoodWeIdInfoResponse,

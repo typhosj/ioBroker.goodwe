@@ -42,7 +42,7 @@
     "Request timed out": "Tiempo de espera agotado",
     "Retries": "Reintentos",
     "Searching...": "Buscando...",
-    "Seconds, 10-3600": "Segundos, 10-3600",
+    "Seconds, 2-3600": "Segundos, 2-3600",
     "Timeout": "Tiempo de espera",
     "Use": "Usar",
     "Validate inverter IP": "Validar IP del inversor"

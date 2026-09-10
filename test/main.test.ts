@@ -17,6 +17,7 @@ import {
   registerGroups,
   TYPE,
   writableEntries,
+  writableGroups,
 } from "../src/lib/register-map";
 import {
   applyControlWrite,
@@ -24,12 +25,7 @@ import {
   stripNamespace,
   writableStateIds,
 } from "../src/lib/control";
-import {
-  bitfields,
-  decodeBitfield,
-  decodeValue,
-  valueStates,
-} from "../src/lib/status-definitions";
+import { bitfields, decodeBitfield } from "../src/lib/status-definitions";
 import {
   booleanDefaults,
   normalizeBoolean,
@@ -40,7 +36,6 @@ import {
   clampDiscoveryConcurrency,
   clampProbeTimeout,
   extractIpv4Address,
-  formatInverterOption,
   getIpv4CandidatesFromSubnet,
   isGoodWeIdInfoResponse,
   parseIdInfoResponse,
@@ -149,9 +144,8 @@ describe("register map", () => {
     ]);
 
     for (const entry of writableEntries.values()) {
-      // A scaled or multi register write would need an encoder, so the control
-      // path only accepts plain single register values.
-      assert.equal(entry.scale, 1, `${entry.state} is scaled`);
+      // A multi register write would need an encoder, so the control path only
+      // accepts values that fit into a single register.
       assert.equal(entry.registers, 1, `${entry.state} spans registers`);
       assert.ok(entry.writable && entry.writable.min < entry.writable.max);
     }
@@ -255,15 +249,6 @@ describe("register map", () => {
 });
 
 describe("status decoding", () => {
-  it("decodes known enum values", () => {
-    assert.equal(decodeValue(1, valueStates.gridStatus), "OK");
-    assert.equal(decodeValue(4, valueStates.operationMode), "Battery");
-  });
-
-  it("marks unknown enum values", () => {
-    assert.equal(decodeValue(99, valueStates.pvMode), "Unknown (99)");
-  });
-
   it("decodes active bit names", () => {
     assert.deepEqual(decodeBitfield(0b101, bitfields.drmStatus), [
       "DRM0",
@@ -344,44 +329,6 @@ describe("GoodWe discovery helpers", () => {
     assert.equal(result.reachable, false);
     assert.match(messages[0], /UDP discovery socket close failed/);
   });
-
-  it("formats discovered inverters as admin select options", () => {
-    assert.deepEqual(
-      formatInverterOption({
-        ip: "192.168.178.42",
-        reachable: true,
-        idInfo: {
-          modelName: "GW10K-ET",
-          serialNumber: "1234567890ABCDEF",
-          firmwareVersion: "01023",
-          internalVersion: "ARM205-V1.7",
-        },
-      }),
-      {
-        value: "192.168.178.42",
-        label:
-          "192.168.178.42 | GW10K-ET | SN 1234567890ABCDEF | FW 01023 | ARM205-V1.7",
-      },
-    );
-  });
-
-  it("omits implausible firmware text from admin select options", () => {
-    assert.deepEqual(
-      formatInverterOption({
-        ip: "192.168.178.29",
-        reachable: true,
-        idInfo: {
-          modelName: "GW10KN-ET",
-          serialNumber: "9010KETU231W1723",
-          firmwareVersion: "0<0<M",
-        },
-      }),
-      {
-        value: "192.168.178.29",
-        label: "192.168.178.29 | GW10KN-ET | SN 9010KETU231W1723",
-      },
-    );
-  });
 });
 
 describe("GoodWe UDP parser", () => {
@@ -407,6 +354,28 @@ describe("GoodWe UDP parser", () => {
 
     assert.equal(await inverter.ReadGroup("runningData"), true);
     assert.equal(inverter.RunningData.DerateFrozenPower, -12345);
+  });
+
+  it("accepts a padded datagram carrying the answer", async () => {
+    // The dongle pads the 257 byte running data answer to 1024 bytes. Reading
+    // the CRC from the end of the datagram rejected it and cost a retry. The
+    // padding must not be zeros here: a Modbus CRC register that is 0 after a
+    // valid frame stays 0 over zero bytes, so zero padding passes even the
+    // broken check and would make this test prove nothing.
+    const socket = new FakeSocket(() => {
+      const frame = buildRegisterResponse(
+        registerGroups.runningData,
+        (response) => {
+          response.writeInt16BE(-230, 5 + (35140 - 35100) * 2);
+        },
+      );
+
+      return Buffer.concat([frame, Buffer.alloc(1024 - frame.length, 0xff)]);
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(inverter.RunningData.AcActivePower, -230);
   });
 
   it("decodes byte offsets, signed values, and scaled values", async () => {
@@ -555,6 +524,7 @@ describe("state mapping", () => {
       start: 0,
       count: 1,
       channel: "RunningData",
+      target: "RunningData",
       entries: [
         {
           address: 0,
@@ -607,6 +577,7 @@ describe("state mapping", () => {
       start: 0,
       count: 1,
       channel: "RunningData",
+      target: "RunningData",
       entries: [
         {
           address: 0,
@@ -689,7 +660,7 @@ describe("poll scheduler", () => {
   it("clamps invalid poll cycle configuration", () => {
     assert.equal(clampPollCycle(undefined), 10);
     assert.equal(clampPollCycle(Number.NaN), 10);
-    assert.equal(clampPollCycle(0), 10);
+    assert.equal(clampPollCycle(0), 2);
     assert.equal(clampPollCycle(99.9), 99);
     assert.equal(clampPollCycle(9999), 3600);
   });
@@ -730,6 +701,154 @@ describe("poll scheduler", () => {
     timeoutCallback();
     await Promise.resolve();
     assert.equal(pollCount, 1);
+  });
+});
+
+describe("poll traffic", () => {
+  // Every lost UDP request costs a retry, so the scheduler must not read more
+  // registers than the data actually changes.
+  function createPollScheduler(config: ioBroker.AdapterConfig): {
+    reads: string[];
+    scheduler: GoodWePollScheduler;
+    setStatus: (online: boolean) => void;
+  } {
+    const reads: string[] = [];
+    let online = true;
+    const inverter = {
+      get Status(): boolean {
+        return online;
+      },
+      ReadIdInfo: () => Promise.resolve(true),
+      ReadGroup: (groupName: string) => {
+        reads.push(groupName);
+        return Promise.resolve(true);
+      },
+    } as unknown as GoodWeUdp;
+    const states = {
+      IsRegisterGroupEnabled: (groupName: string) =>
+        groupName !== "bmsDetail" && groupName !== "powerLimit",
+      SetConnection: () => Promise.resolve(undefined),
+      UpdateStatesFromRegisterMap: () => Promise.resolve(undefined),
+      UpdateDecodedRunningStatuses: () => Promise.resolve(undefined),
+      UpdateDecodedBmsStatuses: () => Promise.resolve(undefined),
+      UpdateDerivedRunningStates: () => Promise.resolve(undefined),
+    } as unknown as GoodWeStateManager;
+
+    return {
+      reads,
+      scheduler: new GoodWePollScheduler(
+        {
+          config,
+          log: testLogger,
+          setTimeout: () => 1 as ioBroker.Timeout,
+          clearTimeout: noop,
+        },
+        inverter,
+        states,
+        1000,
+      ),
+      setStatus: (value: boolean) => {
+        online = value;
+      },
+    };
+  }
+
+  it("reads the live groups once per configured cycle", async () => {
+    // Five second cycle, one tick per second: 60 ticks are 12 cycles.
+    const { reads, scheduler } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    for (const groupName of ["runningData", "extComData", "bmsInfo"]) {
+      assert.equal(
+        reads.filter((name) => name === groupName).length,
+        12,
+        `${groupName} runs once per cycle`,
+      );
+    }
+  });
+
+  it("sends the smallest live read into the lossy first slot", async () => {
+    const { reads, scheduler } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    for (let tick = 0; tick < 10; tick++) {
+      await scheduler.Poll();
+    }
+
+    // The first request after the idle gap loses answers several times as
+    // often as the ones behind it, so the order is deliberate, not incidental.
+    assert.deepEqual(reads.slice(0, 4), [
+      "deviceInfo",
+      "bmsInfo",
+      "runningData",
+      "extComData",
+    ]);
+  });
+
+  it("reads one optional group per slow slot, round robin", async () => {
+    const { reads, scheduler } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    // 60 seconds hold twelve live cycles and, at one slot per 30 seconds,
+    // two optional group reads.
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    const optional = reads.filter((groupName) =>
+      Object.keys(optionalGroupConfigs).includes(groupName),
+    );
+
+    assert.deepEqual(optional, ["deviceSimccid", "extComDataExtended"]);
+  });
+
+  it("keeps the request count per minute well below the live cycle", async () => {
+    const { reads, scheduler } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    // Three live groups twelve times plus two optional reads plus the single
+    // device info read. Every extra request is another one that can be lost.
+    assert.equal(reads.length, 39);
+  });
+
+  it("reads the static device data once per connection", async () => {
+    const { reads, scheduler, setStatus } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.equal(reads.filter((name) => name === "deviceInfo").length, 1);
+
+    // A reconnect can mean new firmware, so it is read again.
+    setStatus(false);
+    await scheduler.Poll();
+    setStatus(true);
+
+    for (let tick = 0; tick < 10; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.equal(reads.filter((name) => name === "deviceInfo").length, 2);
   });
 });
 
@@ -878,6 +997,26 @@ function buildWriteResponse(address: number, value: number): Buffer {
   return response;
 }
 
+function buildExceptionResponse(
+  functionCode: number,
+  exceptionCode: number,
+): Buffer {
+  const response = Buffer.alloc(7);
+
+  response[0] = 0xaa;
+  response[1] = 0x55;
+  response[2] = 0xf7;
+  response[3] = functionCode | 0x80;
+  response[4] = exceptionCode;
+
+  const crc = calculateCrc16(response, 2, 3);
+
+  response[5] = crc >> 8;
+  response[6] = crc & 0xff;
+
+  return response;
+}
+
 function buildRegisterResponse(
   group: RegisterGroup,
   writePayload: (response: Buffer) => void,
@@ -928,7 +1067,11 @@ describe("inverter control", () => {
     "Settings.GridExportLimit",
   ) as RegisterEntry;
 
-  function createControlContext(controlEnabled = true): {
+  function createControlContext(
+    controlEnabled = true,
+    options: { writeConfirmed?: boolean; readBack?: boolean } = {},
+  ): {
+    acknowledged: StateWrite[];
     context: Parameters<typeof applyControlWrite>[0];
     reads: string[];
     updated: string[];
@@ -937,24 +1080,30 @@ describe("inverter control", () => {
     const writes: Array<{ address: number; value: number }> = [];
     const reads: string[] = [];
     const updated: string[] = [];
+    const acknowledged: StateWrite[] = [];
 
     return {
+      acknowledged,
       context: {
         adapter: { log: testLogger, namespace: "goodwe.0" },
         inverter: {
           WriteRegister: (address: number, value: number) => {
             writes.push({ address, value });
-            return Promise.resolve(true);
+            return Promise.resolve(options.writeConfirmed !== false);
           },
           ReadGroup: (groupName: string) => {
             reads.push(groupName);
-            return Promise.resolve(true);
+            return Promise.resolve(options.readBack !== false);
           },
         },
         states: {
           IsControlEnabled: () => controlEnabled,
           UpdateStatesFromRegisterMap: (group: RegisterGroup) => {
             updated.push(group.name);
+            return Promise.resolve();
+          },
+          Acknowledge: (id: string, value: ioBroker.StateValue) => {
+            acknowledged.push({ id, value, ack: true });
             return Promise.resolve();
           },
         },
@@ -966,14 +1115,33 @@ describe("inverter control", () => {
   }
 
   it("clamps written values into the register range", () => {
-    assert.equal(clampWriteValue(emsMode, 0), 1);
-    assert.equal(clampWriteValue(emsMode, 99), 12);
     assert.equal(clampWriteValue(exportLimit, 3500.4), 3500);
     assert.equal(clampWriteValue(exportLimit, -1), 0);
+    assert.equal(clampWriteValue(exportLimit, 99999), 30000);
     assert.equal(clampWriteValue(exportLimit, true), 1);
     assert.equal(clampWriteValue(exportLimit, "3500"), null);
     assert.equal(clampWriteValue(exportLimit, Number.NaN), null);
     assert.equal(clampWriteValue(exportLimit, null), null);
+  });
+
+  it("refuses enum values the register does not define", () => {
+    assert.equal(clampWriteValue(emsMode, 1), 1);
+    assert.equal(clampWriteValue(emsMode, 12), 12);
+    // Clamping would turn a typo into "discharge battery" instead of refusing.
+    assert.equal(clampWriteValue(emsMode, 99), null);
+    assert.equal(clampWriteValue(emsMode, 0), null);
+    assert.equal(clampWriteValue(emsMode, 4.4), null);
+  });
+
+  it("scales the state value into register units", () => {
+    const scaled: RegisterEntry = {
+      ...exportLimit,
+      scale: 10,
+      writable: { min: 0, max: 30000 },
+    };
+
+    assert.equal(clampWriteValue(scaled, 52.3), 523);
+    assert.equal(clampWriteValue(scaled, 5000), 30000);
   });
 
   it("subscribes exactly the writable states", () => {
@@ -1186,6 +1354,151 @@ describe("inverter control", () => {
       true,
     );
     assert.equal(await inverter.WriteRegister(47511, 4), false);
+  });
+
+  it("acknowledges the confirmed value when the read back fails", async () => {
+    const control = createControlContext(true, { readBack: false });
+
+    await applyControlWrite(control.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: false,
+    } as ioBroker.State);
+
+    assert.deepEqual(control.writes, [{ address: 47511, value: 4 }]);
+    assert.deepEqual(control.updated, []);
+    assert.deepEqual(control.acknowledged, [
+      { id: "Settings.EmsMode", value: 4, ack: true },
+    ]);
+  });
+
+  it("leaves an unconfirmed write unacknowledged", async () => {
+    const control = createControlContext(true, {
+      readBack: false,
+      writeConfirmed: false,
+    });
+
+    await applyControlWrite(control.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: false,
+    } as ioBroker.State);
+
+    assert.deepEqual(control.acknowledged, []);
+  });
+
+  it("keeps the writable register group enabled while control is on", () => {
+    assert.deepEqual(Array.from(writableGroups), ["settingsEms"]);
+
+    const manager = new GoodWeStateManager(
+      {
+        config: {
+          ...testConfig,
+          enableControl: true,
+          pollExtended: false,
+          pollSettings: false,
+        },
+        log: testLogger,
+      } as unknown as StateAdapterLike,
+      {} as unknown as GoodWeUdp,
+    );
+
+    // Without this the poll switches would delete the very objects main.ts
+    // subscribes for inverter control.
+    assert.equal(manager.IsRegisterGroupEnabled("settingsEms"), true);
+    assert.equal(manager.IsRegisterGroupEnabled("settingsBattery"), false);
+  });
+});
+
+describe("Modbus exceptions", () => {
+  it("fails a rejected write at once instead of retrying into timeouts", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      buildExceptionResponse(0x06, 2),
+    ]);
+    const inverter = createInverter(socket);
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 5,
+      }),
+      true,
+    );
+
+    const started = Date.now();
+
+    assert.equal(await inverter.WriteRegister(47511, 4), false);
+    assert.ok(
+      Date.now() - started < 1000,
+      "a rejected write must not wait out six timeouts",
+    );
+    // An answered request proves the inverter is reachable, so the adapter must
+    // not drop to offline just because it declined this register.
+    assert.equal(inverter.Status, true);
+  });
+
+  it("reports the exception code instead of a timeout", async () => {
+    const messages: string[] = [];
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      buildExceptionResponse(0x03, 2),
+    ]);
+    const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
+      "node:dgram": { createSocket: () => socket },
+    }) as { GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp };
+    const inverter = new GoodWeUdp({
+      log: {
+        ...testLogger,
+        warn: (message: string) => messages.push(message),
+      },
+    });
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, { retries: 3 }),
+      true,
+    );
+    assert.equal(await inverter.ReadGroup("powerLimit"), false);
+    assert.match(messages[0], /Modbus exception 2 \(illegal data address\)/);
+  });
+});
+
+describe("request serialization", () => {
+  it("sends the next request only after the running one is answered", async () => {
+    const inFlight: number[] = [];
+    let concurrent = 0;
+    const socket = new (class extends EventEmitter {
+      send(
+        _buffer: Uint8Array,
+        _offset: number,
+        _length: number,
+        _port: number,
+        _ip: string,
+        callback: (error?: Error) => void,
+      ): void {
+        concurrent++;
+        inFlight.push(concurrent);
+        callback(undefined);
+        setTimeout(() => {
+          concurrent--;
+          this.emit(
+            "message",
+            buildRegisterResponse(registerGroups.settingsEms, () => {}),
+          );
+        }, 5);
+      }
+
+      close(): void {}
+    })();
+    const inverter = createInverter(socket);
+
+    await Promise.all([
+      inverter.ReadGroup("settingsEms"),
+      inverter.ReadGroup("settingsEms"),
+      inverter.ReadGroup("settingsEms"),
+    ]);
+
+    assert.deepEqual(inFlight, [1, 1, 1]);
   });
 });
 

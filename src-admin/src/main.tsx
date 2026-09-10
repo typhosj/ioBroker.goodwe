@@ -34,6 +34,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import Grid from "@mui/material/Grid2";
 import React, { useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { clampNumber } from "../../src/lib/config";
 import de from "../../admin/i18n/de.json";
 import en from "../../admin/i18n/en.json";
 import es from "../../admin/i18n/es.json";
@@ -198,15 +199,6 @@ function normalizeNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function clampNumber(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  return Math.min(max, Math.max(min, normalizeNumber(value, fallback)));
-}
-
 function normalizeString(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -228,7 +220,7 @@ function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
     pollCycle: clampNumber(
       settings.pollCycle,
       DEFAULT_CONFIG.pollCycle,
-      10,
+      2,
       3600,
     ),
     timeoutMs: clampNumber(
@@ -476,9 +468,9 @@ function GoodWeConfig(props: {
             <Grid size={{ xs: 12, md: 4 }}>
               <TextField
                 fullWidth
-                helperText={t("Seconds, 10-3600")}
+                helperText={t("Seconds, 2-3600")}
                 label={t("Poll cycle")}
-                slotProps={{ htmlInput: { min: 10, max: 3600 } }}
+                slotProps={{ htmlInput: { min: 2, max: 3600 } }}
                 type="number"
                 value={props.config.pollCycle}
                 variant="standard"

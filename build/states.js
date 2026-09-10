@@ -53,9 +53,23 @@ class GoodWeStateManager {
     async SetConnection(value) {
         await this.Write("info.connection", value);
     }
+    /**
+     * Acknowledges a written state without reading the inverter again.
+     *
+     * @param id state id without the adapter namespace
+     * @param value value the inverter confirmed
+     */
+    async Acknowledge(id, value) {
+        await this.Write(id, value);
+    }
     IsRegisterGroupEnabled(groupName) {
         const configKey = register_map_1.optionalGroupConfigs[groupName];
         if (!configKey) {
+            return true;
+        }
+        // Inverter control writes into this group and reads it back, so its poll
+        // switch must not delete the very states the control path subscribes.
+        if (register_map_1.writableGroups.has(groupName) && this.IsControlEnabled()) {
             return true;
         }
         // Normalize here as well: a mistyped switch does not only disable the
@@ -288,45 +302,9 @@ class GoodWeStateManager {
         }
     }
     async UpdateStatesFromRegisterMap(group) {
-        const getter = this.GroupGetter(group);
-        if (getter === "") {
-            this.adapter.log.error(`No inverter model getter for register group ${group.name}`);
-            return;
-        }
-        const source = this.inverter[getter];
+        const source = this.inverter[group.target];
         for (const item of group.entries) {
             await this.Write(item.state, this.GetStateValue(item.state, item.model, source));
-        }
-    }
-    GroupGetter(group) {
-        switch (group.name) {
-            case "DeviceInfo":
-                return "DeviceInfo";
-            case "RunningData":
-                return "RunningData";
-            case "ExtComData":
-                return "ExtComData";
-            case "BMSInfo":
-                return "BmsInfo";
-            case "DeviceInfo.SIMCCID":
-                return "DeviceInfo";
-            case "ExtComData.Extended":
-                return "ExtComData";
-            case "FlashInfo":
-                return "FlashInfo";
-            case "BMSInfo.Extended":
-                return "BmsInfo";
-            case "BMSDetail":
-                return "BmsDetail";
-            case "CEIAutoTest":
-                return "CeiAutoTest";
-            case "PowerLimit":
-                return "PowerLimit";
-            case "Settings.Battery":
-            case "Settings.Ems":
-                return "Settings";
-            default:
-                return "";
         }
     }
     GetStateValue(state, path, source) {
