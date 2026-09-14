@@ -121,7 +121,7 @@ const ADVANCED_FIELDS: Array<{
   {
     key: "pollExtended",
     label: "Poll extended registers",
-    help: "Reads running data registers 35100-35220: PV, grid, load, battery, temperatures, modes, errors, energy and diagnostics.",
+    help: "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.",
   },
   {
     key: "pollSimccid",

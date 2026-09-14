@@ -74,7 +74,7 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
   The optional register groups do not follow this cycle: they share one slot that is served round robin about every 30 seconds, and `DeviceInfo` is read once per connection.
 * `timeoutMs`: UDP request timeout in milliseconds, from 1000 to 30000.
 * `retries`: Retry count per UDP request, from 0 to 5.
-* `pollExtended`: Master switch for optional register groups.
+* `pollExtended`: Master switch for optional register groups. `DeviceInfo`, `RunningData`, `ExtComData` and `BMSInfo` are always read.
 * `pollSimccid`: Enables optional SIMCCID polling.
 * `pollExtendedMeter`: Enables extended meter registers.
 * `pollFlashInfo`: Enables flash information registers.
@@ -109,8 +109,14 @@ refused instead of being clamped into a mode nobody asked for. Values that are n
 refused as well, and the register group is read back after every write, so the states show what the
 inverter really stored.
 
-Switching `enableControl` on keeps the EMS setting registers polled even when `pollSettings` is off,
-because the writable states have to exist and be read back.
+Before a write the adapter reads the register group and skips the write when the inverter already holds
+the value. A script that repeats the same setpoint every cycle therefore does not send a register write
+every time.
+
+Switching `enableControl` on keeps the EMS setting registers polled even when `pollSettings` or
+`pollExtended` is off, because the writable states have to exist and be read back. Unlike the other
+optional groups, a failed read of this group does not pause it for an hour; it is tried again in its
+next slot.
 
 GoodWe does not document its writable registers. Control is off by default, and switching it on
 happens at your own risk: a wrong value changes inverter settings that the adapter cannot restore.
@@ -140,11 +146,10 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 -->
 ### **WORK IN PROGRESS**
 - Added the battery settings (registers 45350-45358) and the EMS settings (registers 47509-47512) as new `Settings.*` states, enabled with the new `pollSettings` option.
-- Added optional inverter control: with the new `enableControl` option the states `Settings.EmsMode`, `Settings.EmsPowerLimit`, `Settings.GridExportEnabled` and `Settings.GridExportLimit` become writable and are sent to the inverter as single register writes. Limit values are clamped to the documented range, mode values outside the documented list are refused, only these four registers are ever written, and the register group is read back after every write. Control is off by default.
-- `enableControl` now keeps the EMS setting registers polled even when `pollSettings` is off, so the writable states can no longer be deleted while inverter control is switched on.
-- Requests to the inverter are serialized. A control write and a running poll can no longer overlap, where the timeout of one rebound the socket of the other.
+- Added optional inverter control: with the new `enableControl` option the states `Settings.EmsMode`, `Settings.EmsPowerLimit`, `Settings.GridExportEnabled` and `Settings.GridExportLimit` become writable and are sent to the inverter as single register writes. Only these four registers are ever written: limit values are clamped to the documented range, mode values outside the documented list are refused, a value the inverter already holds is not written again, and the register group is read back after every write. While control is on, the EMS settings stay polled whatever `pollSettings` and `pollExtended` say. Control is off by default.
+- Fixed UDP answers being discarded when the inverter pads them into a larger datagram (the 257 byte running data frame arrives in 1024 bytes). The frame check read the checksum from the end of the datagram, so every padded answer ran into a timeout and a retry. On a live inverter the running data retries dropped from 1.57 % to 0.46 %.
 - A register the inverter rejects is reported as a Modbus exception right away instead of running into the full timeout of every retry.
-- Reworked the poll cycle to cut the UDP traffic to the inverter. `pollCycle` now means the interval of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and accepts values from 2 seconds, where it started at 10 before. The optional register groups no longer run all at once every cycle but share one slot that is served round robin roughly every 30 seconds, and the static `DeviceInfo` is read once per connection instead of every cycle. With the default settings this is 39 register requests per minute instead of 66, and every request that is not sent is one whose answer cannot get lost.
+- Reworked the poll cycle to cut the UDP traffic to the inverter. `pollCycle` now means the interval of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and accepts values from 2 seconds, where it started at 10 before. The optional register groups no longer run all at once every cycle but share one slot that is served round robin roughly every 30 seconds, and the static `DeviceInfo` is read once per connection instead of every cycle. With the default settings this is 39 register requests per minute instead of 66, and every request that is not sent is one whose answer cannot get lost. The small `BMSInfo` read now goes first in every cycle, because the first request after the idle gap loses the most answers.
 
 ### 1.1.3 (2026-08-28)
 - Fixed the adapter crashing with `Cannot read properties of undefined (reading 'debug')`: the logger is now read when it is used instead of being captured before the adapter assigned it.

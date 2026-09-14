@@ -19,6 +19,8 @@ interface GoodWeConnectOptions {
 
 interface ReadGroupOptions {
   optional?: boolean;
+  // Optional groups only: pause the group for an hour after a failed read.
+  backoff?: boolean;
 }
 
 interface PendingRequest {
@@ -602,10 +604,14 @@ export class GoodWeUdp {
     } catch (error) {
       if (isOptional) {
         this.#status = previousStatus;
-        this.#optionalGroupBackoffUntil.set(
-          groupName,
-          Date.now() + 60 * 60 * 1000,
-        );
+
+        if (options.backoff !== false) {
+          this.#optionalGroupBackoffUntil.set(
+            groupName,
+            Date.now() + 60 * 60 * 1000,
+          );
+        }
+
         this.log.debug?.(`${group.name}: ${errorMessage(error)}`);
         return false;
       }

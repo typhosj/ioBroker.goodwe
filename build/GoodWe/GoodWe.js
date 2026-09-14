@@ -457,7 +457,9 @@ class GoodWeUdp {
         catch (error) {
             if (isOptional) {
                 this.#status = previousStatus;
-                this.#optionalGroupBackoffUntil.set(groupName, Date.now() + 60 * 60 * 1000);
+                if (options.backoff !== false) {
+                    this.#optionalGroupBackoffUntil.set(groupName, Date.now() + 60 * 60 * 1000);
+                }
                 this.log.debug?.(`${group.name}: ${(0, errors_1.errorMessage)(error)}`);
                 return false;
             }

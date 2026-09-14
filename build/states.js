@@ -307,6 +307,15 @@ class GoodWeStateManager {
             await this.Write(item.state, this.GetStateValue(item.state, item.model, source));
         }
     }
+    /**
+     * Returns the value the inverter reported for a register at its last read.
+     *
+     * @param group register group the entry belongs to
+     * @param item register entry
+     */
+    RegisterValue(group, item) {
+        return this.GetMappedValue(item.model, this.inverter[group.target]);
+    }
     GetStateValue(state, path, source) {
         const value = this.GetMappedValue(path, source);
         if (state === "RunningData.Battery1.Mode" &&

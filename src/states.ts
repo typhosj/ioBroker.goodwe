@@ -424,6 +424,22 @@ class GoodWeStateManager {
     }
   }
 
+  /**
+   * Returns the value the inverter reported for a register at its last read.
+   *
+   * @param group register group the entry belongs to
+   * @param item register entry
+   */
+  RegisterValue(
+    group: RegisterGroup,
+    item: RegisterEntry,
+  ): ioBroker.StateValue {
+    return this.GetMappedValue(
+      item.model,
+      (this.inverter as unknown as Record<string, unknown>)[group.target],
+    );
+  }
+
   GetStateValue(
     state: string,
     path: string,

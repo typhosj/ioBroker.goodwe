@@ -1,8 +1,12 @@
 "use strict";
 
 import { errorMessage } from "./lib/errors";
-import { clampNumber, normalizeBoolean } from "./lib/config";
-import { optionalGroupConfigs, registerGroups } from "./lib/register-map";
+import { clampNumber } from "./lib/config";
+import {
+  optionalGroupConfigs,
+  registerGroups,
+  writableGroups,
+} from "./lib/register-map";
 import type { GoodWeUdp } from "./GoodWe/GoodWe";
 import type GoodWeStateManager from "./states";
 
@@ -174,10 +178,8 @@ class GoodWePollScheduler {
         await this.UpdateRunningData();
         await this.UpdateExtComData();
 
-        if (!normalizeBoolean(this.adapter.config.pollExtended, true)) {
-          return;
-        }
-
+        // No early return on pollExtended: IsRegisterGroupEnabled() already
+        // applies it, and inverter control keeps its group polled regardless.
         if (this.slowCnt > 0) {
           this.slowCnt--;
           return;
@@ -275,7 +277,18 @@ class GoodWePollScheduler {
 
     this.optionalGroupIndex = (this.optionalGroupIndex + 1) % enabled.length;
 
-    if (await this.inverter.ReadGroup(groupName, { optional: true })) {
+    // An unsupported optional group sleeps for an hour after a failed read. The
+    // group inverter control writes into must not: one lost answer would freeze
+    // the writable states for that hour.
+    const controlGroup =
+      writableGroups.has(groupName) && this.states.IsControlEnabled();
+
+    if (
+      await this.inverter.ReadGroup(groupName, {
+        optional: true,
+        backoff: !controlGroup,
+      })
+    ) {
       await this.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
 
       // Only this group adds the high words the decoder needs; the base group

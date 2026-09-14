@@ -21,6 +21,10 @@ interface ControlStates {
     group: (typeof registerGroups)[string],
   ) => Promise<void>;
   Acknowledge: (id: string, value: ioBroker.StateValue) => Promise<void>;
+  RegisterValue: (
+    group: (typeof registerGroups)[string],
+    item: RegisterEntry,
+  ) => ioBroker.StateValue;
 }
 
 interface ControlAdapter {
@@ -148,6 +152,25 @@ async function applyControlWrite(
     );
   }
 
+  const groupName = registerGroupOfState(stateId);
+
+  // Scripts tend to repeat the same setpoint every cycle, and GoodWe does not
+  // say whether these registers end up in flash. Reading the group first costs
+  // one small request and spares every write that would change nothing. The
+  // last poll is no substitute: the optional groups take minutes to come round.
+  if (
+    groupName !== "" &&
+    (await context.inverter.ReadGroup(groupName)) &&
+    context.states.RegisterValue(registerGroups[groupName], entry) ===
+      value / entry.scale
+  ) {
+    context.adapter.log.debug(
+      `Skipping write to ${stateId}: inverter already holds ${value / entry.scale}`,
+    );
+    await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
+    return;
+  }
+
   const written = await context.inverter.WriteRegister(entry.address, value);
 
   if (written) {
@@ -158,8 +181,6 @@ async function applyControlWrite(
 
   // Read back either way: a rejected write leaves the state showing a value the
   // inverter never stored.
-  const groupName = registerGroupOfState(stateId);
-
   if (groupName !== "" && (await context.inverter.ReadGroup(groupName))) {
     await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
     return;

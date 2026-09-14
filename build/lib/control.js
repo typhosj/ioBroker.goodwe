@@ -92,6 +92,19 @@ async function applyControlWrite(context, id, state) {
     if (value !== Math.round(Number(state.val) * entry.scale)) {
         context.adapter.log.warn(`Clamped write to ${stateId} from ${String(state.val)} to ${value / entry.scale}`);
     }
+    const groupName = (0, register_map_1.registerGroupOfState)(stateId);
+    // Scripts tend to repeat the same setpoint every cycle, and GoodWe does not
+    // say whether these registers end up in flash. Reading the group first costs
+    // one small request and spares every write that would change nothing. The
+    // last poll is no substitute: the optional groups take minutes to come round.
+    if (groupName !== "" &&
+        (await context.inverter.ReadGroup(groupName)) &&
+        context.states.RegisterValue(register_map_1.registerGroups[groupName], entry) ===
+            value / entry.scale) {
+        context.adapter.log.debug(`Skipping write to ${stateId}: inverter already holds ${value / entry.scale}`);
+        await context.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
+        return;
+    }
     const written = await context.inverter.WriteRegister(entry.address, value);
     if (written) {
         context.adapter.log.info(`Wrote ${value} to ${stateId}`);
@@ -101,7 +114,6 @@ async function applyControlWrite(context, id, state) {
     }
     // Read back either way: a rejected write leaves the state showing a value the
     // inverter never stored.
-    const groupName = (0, register_map_1.registerGroupOfState)(stateId);
     if (groupName !== "" && (await context.inverter.ReadGroup(groupName))) {
         await context.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
         return;

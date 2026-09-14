@@ -707,26 +707,36 @@ describe("poll scheduler", () => {
 describe("poll traffic", () => {
   // Every lost UDP request costs a retry, so the scheduler must not read more
   // registers than the data actually changes.
-  function createPollScheduler(config: ioBroker.AdapterConfig): {
+  function createPollScheduler(
+    config: ioBroker.AdapterConfig,
+    overrides: Partial<
+      Pick<GoodWeStateManager, "IsRegisterGroupEnabled" | "IsControlEnabled">
+    > = {},
+  ): {
+    readOptions: Map<string, unknown>;
     reads: string[];
     scheduler: GoodWePollScheduler;
     setStatus: (online: boolean) => void;
   } {
     const reads: string[] = [];
+    const readOptions = new Map<string, unknown>();
     let online = true;
     const inverter = {
       get Status(): boolean {
         return online;
       },
       ReadIdInfo: () => Promise.resolve(true),
-      ReadGroup: (groupName: string) => {
+      ReadGroup: (groupName: string, options?: unknown) => {
         reads.push(groupName);
+        readOptions.set(groupName, options);
         return Promise.resolve(true);
       },
     } as unknown as GoodWeUdp;
     const states = {
       IsRegisterGroupEnabled: (groupName: string) =>
         groupName !== "bmsDetail" && groupName !== "powerLimit",
+      IsControlEnabled: () => false,
+      ...overrides,
       SetConnection: () => Promise.resolve(undefined),
       UpdateStatesFromRegisterMap: () => Promise.resolve(undefined),
       UpdateDecodedRunningStatuses: () => Promise.resolve(undefined),
@@ -735,6 +745,7 @@ describe("poll traffic", () => {
     } as unknown as GoodWeStateManager;
 
     return {
+      readOptions,
       reads,
       scheduler: new GoodWePollScheduler(
         {
@@ -849,6 +860,40 @@ describe("poll traffic", () => {
     }
 
     assert.equal(reads.filter((name) => name === "deviceInfo").length, 2);
+  });
+
+  it("keeps polling the control group with the optional groups switched off", async () => {
+    const config = {
+      ...testConfig,
+      pollCycle: 5,
+      pollExtended: false,
+      pollSettings: false,
+      enableControl: true,
+    };
+    const manager = new GoodWeStateManager(
+      { config, log: testLogger } as unknown as StateAdapterLike,
+      {} as unknown as GoodWeUdp,
+    );
+    const { readOptions, reads, scheduler } = createPollScheduler(config, {
+      IsRegisterGroupEnabled: (groupName: string) =>
+        manager.IsRegisterGroupEnabled(groupName),
+      IsControlEnabled: () => manager.IsControlEnabled(),
+    });
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    // The writable states would otherwise only change after a write of their own.
+    assert.deepEqual(
+      reads.filter((groupName) => groupName in optionalGroupConfigs),
+      ["settingsEms", "settingsEms"],
+    );
+    // One lost answer must not freeze the writable states for an hour.
+    assert.deepEqual(readOptions.get("settingsEms"), {
+      optional: true,
+      backoff: false,
+    });
   });
 });
 
@@ -1069,7 +1114,11 @@ describe("inverter control", () => {
 
   function createControlContext(
     controlEnabled = true,
-    options: { writeConfirmed?: boolean; readBack?: boolean } = {},
+    options: {
+      writeConfirmed?: boolean;
+      readBack?: boolean;
+      stored?: number;
+    } = {},
   ): {
     acknowledged: StateWrite[];
     context: Parameters<typeof applyControlWrite>[0];
@@ -1106,6 +1155,7 @@ describe("inverter control", () => {
             acknowledged.push({ id, value, ack: true });
             return Promise.resolve();
           },
+          RegisterValue: () => options.stored ?? null,
         },
       },
       reads,
@@ -1174,6 +1224,22 @@ describe("inverter control", () => {
     );
 
     assert.deepEqual(control.writes, [{ address: 47510, value: 30000 }]);
+    // Read before the write to compare, read after it to confirm.
+    assert.deepEqual(control.reads, ["settingsEms", "settingsEms"]);
+    assert.deepEqual(control.updated, ["Settings.Ems"]);
+  });
+
+  it("skips a write the inverter already holds", async () => {
+    const control = createControlContext(true, { stored: 3500 });
+
+    await applyControlWrite(
+      control.context,
+      "goodwe.0.Settings.GridExportLimit",
+      { val: 3500, ack: false } as ioBroker.State,
+    );
+
+    // A script repeating its setpoint must not send a register write each time.
+    assert.deepEqual(control.writes, []);
     assert.deepEqual(control.reads, ["settingsEms"]);
     assert.deepEqual(control.updated, ["Settings.Ems"]);
   });
@@ -1729,6 +1795,28 @@ describe("UDP frame safety", () => {
     // The lost frame never shows up, so the next answer has to be accepted
     // instead of being dropped as the late one forever.
     assert.equal(await inverter.ReadGroup("runningData"), true);
+  });
+
+  it("reads an optional group again at once when its backoff is off", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      null,
+      buildRegisterResponse(registerGroups.settingsEms, () => {}),
+    ]);
+    const inverter = createInverter(socket);
+    const options = { optional: true, backoff: false };
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(await inverter.ReadGroup("settingsEms", options), false);
+    assert.equal(await inverter.ReadGroup("settingsEms", options), true);
   });
 
   it("logs an unmatched frame when the logger appears after construction", () => {
