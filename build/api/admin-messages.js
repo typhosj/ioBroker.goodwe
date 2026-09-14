@@ -43,6 +43,7 @@ async function handleAdapterMessage(adapter, obj) {
                     subnet: getConfiguredSubnet(adapter, obj.message?.subnet),
                     timeoutMs: (0, goodwe_discovery_1.clampProbeTimeout)(obj.message?.timeoutMs),
                     concurrency: Number(obj.message?.concurrency) || undefined,
+                    log: adapter.log,
                 });
                 respond(result);
                 return;

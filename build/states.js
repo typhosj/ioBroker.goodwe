@@ -23,6 +23,8 @@ class GoodWeStateManager {
     adapter;
     inverter;
     stopped = false;
+    controlWrites = 0;
+    controlChain = Promise.resolve();
     constructor(adapter, inverter) {
         this.adapter = adapter;
         this.inverter = inverter;
@@ -61,6 +63,33 @@ class GoodWeStateManager {
      */
     async Acknowledge(id, value) {
         await this.Write(id, value);
+    }
+    /**
+     * Runs a control write after the previous one and marks it as pending.
+     *
+     * One at a time: switched on and off again quickly, the second write would
+     * read the register before the first one reached it, skip itself as already
+     * done and leave the inverter on the value the user just took back.
+     *
+     * @param write the control write
+     */
+    async RunControlWrite(write) {
+        this.controlWrites++;
+        const run = this.controlChain.then(write, write);
+        this.controlChain = run.catch(() => undefined);
+        try {
+            await run;
+        }
+        finally {
+            this.controlWrites--;
+        }
+    }
+    /**
+     * Reports whether a control write is running, so the poll does not report
+     * the value the write is about to replace.
+     */
+    IsControlWritePending() {
+        return this.controlWrites > 0;
     }
     IsRegisterGroupEnabled(groupName) {
         const configKey = register_map_1.optionalGroupConfigs[groupName];

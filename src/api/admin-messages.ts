@@ -13,6 +13,7 @@ type AdapterMessage = ioBroker.Message;
 
 interface MessageAdapter {
   config: ioBroker.AdapterConfig;
+  log?: ioBroker.Logger;
   sendTo: (
     instanceName: string,
     command: string,
@@ -70,6 +71,7 @@ async function handleAdapterMessage(
           subnet: getConfiguredSubnet(adapter, obj.message?.subnet),
           timeoutMs: clampProbeTimeout(obj.message?.timeoutMs),
           concurrency: Number(obj.message?.concurrency) || undefined,
+          log: adapter.log,
         });
 
         respond(result);

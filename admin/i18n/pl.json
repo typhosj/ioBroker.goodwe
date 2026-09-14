@@ -17,7 +17,7 @@
     "IP %s applied": "IP %s zastosowany",
     "IP address used for polling and connection checks.": "Adres IP używany przez adapter do odpytywania i sprawdzania połączenia falownika.",
     "Limits discovery to this /24 network. Leave empty to search local IPv4 networks.": "Ogranicza wyszukiwanie do tej sieci /24. Pozostaw puste, aby szukać w lokalnych sieciach IPv4.",
-    "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Udostępnia do zapisu stany trybu EMS, limitu mocy EMS i limitu oddawania do sieci. GoodWe nie dokumentuje rejestrów zapisywalnych, używasz na własne ryzyko.",
+    "Makes the grid export switch, grid export limit, EMS mode and EMS power limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Udostępnia do zapisu stany włączenia oddawania do sieci, limitu oddawania do sieci, trybu EMS i limitu mocy EMS. GoodWe nie dokumentuje rejestrów zapisywalnych, używasz na własne ryzyko.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Główny przełącznik opcjonalnych grup rejestrów poniżej. Dane pracy, dane licznika i informacje BMS są odczytywane zawsze.",
     "Milliseconds, 1000-30000": "Milisekundy, 1000-30000",
     "No inverter found. Searched %s addresses.": "Nie znaleziono falownika. Przeszukano %s adresów.",

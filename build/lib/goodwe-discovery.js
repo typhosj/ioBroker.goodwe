@@ -261,9 +261,14 @@ function getDiscoveryCandidates(options = {}) {
     }
     // Container bridges and VPN adapters all count as external, so an unbounded
     // scan can mean thousands of probes for a host that has one real network.
-    return Array.from(subnets)
-        .slice(0, MAX_DISCOVERY_SUBNETS)
-        .flatMap((subnet) => getIpv4CandidatesFromSubnet(subnet));
+    const scanned = Array.from(subnets);
+    const skipped = scanned.splice(MAX_DISCOVERY_SUBNETS);
+    // Windows lists Hyper-V and WSL adapters first, so the LAN can be the one
+    // that falls off; without this the scan just finds nothing.
+    if (skipped.length > 0) {
+        options.log?.debug?.(`Discovery scans ${scanned.join(", ")} and skips ${skipped.join(", ")}`);
+    }
+    return scanned.flatMap((subnet) => getIpv4CandidatesFromSubnet(subnet));
 }
 function getSubnetFromOctets(octets) {
     return `${octets.slice(0, 3).join(".")}.0/24`;

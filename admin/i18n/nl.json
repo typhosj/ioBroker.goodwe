@@ -17,7 +17,7 @@
     "IP %s applied": "IP %s toegepast",
     "IP address used for polling and connection checks.": "IP-adres dat de adapter gebruikt voor polling en verbindingscontrole van de omvormer.",
     "Limits discovery to this /24 network. Leave empty to search local IPv4 networks.": "Beperkt de zoekactie tot dit /24-netwerk. Laat leeg om in lokale IPv4-netwerken te zoeken.",
-    "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Maakt de states EMS-modus, EMS-vermogensgrens en teruglevergrens beschrijfbaar. GoodWe documenteert geen beschrijfbare registers, gebruik op eigen risico.",
+    "Makes the grid export switch, grid export limit, EMS mode and EMS power limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Maakt de states teruglevering aan/uit, teruglevergrens, EMS-modus en EMS-vermogensgrens beschrijfbaar. GoodWe documenteert geen beschrijfbare registers, gebruik op eigen risico.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Hoofdschakelaar voor de optionele registergroepen hieronder. Bedrijfsgegevens, metergegevens en BMS-informatie worden altijd gelezen.",
     "Milliseconds, 1000-30000": "Milliseconden, 1000-30000",
     "No inverter found. Searched %s addresses.": "Geen omvormer gevonden. %s adressen doorzocht.",

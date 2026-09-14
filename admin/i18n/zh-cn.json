@@ -17,7 +17,7 @@
     "IP %s applied": "已应用 IP %s",
     "IP address used for polling and connection checks.": "适配器用于轮询并检查逆变器连接的 IP 地址。",
     "Limits discovery to this /24 network. Leave empty to search local IPv4 networks.": "将发现限制在此 /24 网络。留空则搜索本地 IPv4 网络。",
-    "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "使 EMS 模式、EMS 功率限值和并网馈电限值状态可写。GoodWe 未公开可写寄存器，请自行承担风险。",
+    "Makes the grid export switch, grid export limit, EMS mode and EMS power limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "使并网馈电开关、并网馈电限值、EMS 模式和 EMS 功率限值状态可写。GoodWe 未公开可写寄存器，请自行承担风险。",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "下方可选寄存器组的总开关。运行数据、电表数据和 BMS 信息始终会读取。",
     "Milliseconds, 1000-30000": "毫秒，1000-30000",
     "No inverter found. Searched %s addresses.": "未找到逆变器。已搜索 %s 个地址。",

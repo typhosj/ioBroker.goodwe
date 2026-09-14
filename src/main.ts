@@ -56,14 +56,6 @@ class Goodwe extends utils.Adapter {
     await this.states.InitializeObjects();
     await this.states.SetConnection(false);
 
-    if (this.states.IsControlEnabled()) {
-      await Promise.all(
-        writableStateIds().map((state) => this.subscribeStatesAsync(state)),
-      );
-
-      this.log.info("Inverter control enabled, writable settings subscribed");
-    }
-
     const configuredIp = extractIpv4Address(this.config.ipAddr);
 
     if (configuredIp === "") {
@@ -85,6 +77,16 @@ class Goodwe extends utils.Adapter {
       timeoutMs: this.config.timeoutMs,
       retries: this.config.retries,
     });
+
+    // Only after the first connection attempt: until then the inverter counts
+    // as offline, and a write to an offline inverter is refused.
+    if (this.states.IsControlEnabled()) {
+      await Promise.all(
+        writableStateIds().map((state) => this.subscribeStatesAsync(state)),
+      );
+
+      this.log.info("Inverter control enabled, writable settings subscribed");
+    }
 
     this.pollScheduler.start();
   }

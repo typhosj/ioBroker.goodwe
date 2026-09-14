@@ -17,7 +17,7 @@
     "IP %s applied": "IP %s applicato",
     "IP address used for polling and connection checks.": "Indirizzo IP usato dall'adattatore per interrogare e verificare la connessione dell'inverter.",
     "Limits discovery to this /24 network. Leave empty to search local IPv4 networks.": "Limita la ricerca a questa rete /24. Lascia vuoto per cercare nelle reti IPv4 locali.",
-    "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Rende scrivibili gli stati modalità EMS, limite di potenza EMS e limite di immissione in rete. GoodWe non documenta i registri scrivibili, usare a proprio rischio.",
+    "Makes the grid export switch, grid export limit, EMS mode and EMS power limit states writable. GoodWe does not document writable registers, so use this at your own risk.": "Rende scrivibili gli stati attivazione dell'immissione in rete, limite di immissione in rete, modalità EMS e limite di potenza EMS. GoodWe non documenta i registri scrivibili, usare a proprio rischio.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Interruttore principale per i gruppi di registri opzionali seguenti. I dati operativi, i dati del contatore e le informazioni BMS vengono sempre letti.",
     "Milliseconds, 1000-30000": "Millisecondi, 1000-30000",
     "No inverter found. Searched %s addresses.": "Nessun inverter trovato. Cercati %s indirizzi.",

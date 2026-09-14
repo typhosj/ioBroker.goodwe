@@ -166,7 +166,7 @@ const ADVANCED_FIELDS: Array<{
   {
     key: "enableControl",
     label: "Enable inverter control",
-    help: "Makes the EMS mode, EMS power limit and grid export limit states writable. GoodWe does not document writable registers, so use this at your own risk.",
+    help: "Makes the grid export switch, grid export limit, EMS mode and EMS power limit states writable. GoodWe does not document writable registers, so use this at your own risk.",
   },
 ];
 

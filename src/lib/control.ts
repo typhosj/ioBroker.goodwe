@@ -8,15 +8,22 @@ import {
 import type { RegisterEntry } from "./register-map";
 
 interface ControlInverter {
+  Status: boolean;
+  Closed: boolean;
   WriteRegister: (address: number, value: number) => Promise<boolean>;
   ReadGroup: (
     groupName: string,
-    options?: { optional?: boolean },
+    options?: { optional?: boolean; backoff?: boolean },
   ) => Promise<boolean>;
 }
 
+// Read like the poll reads this group: a lost answer must neither take the
+// connection offline nor pause the group the writable states live in.
+const controlReadOptions = { optional: true, backoff: false };
+
 interface ControlStates {
   IsControlEnabled: () => boolean;
+  RunControlWrite: (write: () => Promise<void>) => Promise<void>;
   UpdateStatesFromRegisterMap: (
     group: (typeof registerGroups)[string],
   ) => Promise<void>;
@@ -79,7 +86,19 @@ function clampWriteValue(
     return null;
   }
 
-  const numeric = typeof value === "boolean" ? Number(value) : value;
+  let numeric: unknown = value;
+
+  // Input fields hand numbers over as text. Only plain decimals count: Number()
+  // would also turn an empty field into 0 and "0x4" into a mode.
+  if (typeof value === "string" && /^\s*-?\d+(\.\d+)?\s*$/.test(value)) {
+    numeric = Number(value);
+  }
+
+  // A boolean belongs on an on/off register. On a limit true would mean 1 W,
+  // on the EMS mode it would pick "Auto".
+  if (typeof value === "boolean" && range.min === 0 && range.max === 1) {
+    numeric = Number(value);
+  }
 
   if (typeof numeric !== "number" || !Number.isFinite(numeric)) {
     return null;
@@ -116,7 +135,10 @@ async function readBack(
 ): Promise<boolean> {
   const groupName = registerGroupOfState(stateId);
 
-  if (groupName === "" || !(await context.inverter.ReadGroup(groupName))) {
+  if (
+    groupName === "" ||
+    !(await context.inverter.ReadGroup(groupName, controlReadOptions))
+  ) {
     return false;
   }
 
@@ -161,21 +183,50 @@ async function applyControlWrite(
     return;
   }
 
-  const value = clampWriteValue(entry, state.val);
+  await context.states.RunControlWrite(() =>
+    sendControlWrite(context, stateId, entry, state.val),
+  );
+}
+
+/**
+ * Checks a control write and sends it to the inverter.
+ *
+ * @param context adapter, inverter and state manager
+ * @param stateId state id without the adapter namespace
+ * @param entry writable register entry of the state
+ * @param stateValue value written to the state
+ */
+async function sendControlWrite(
+  context: ControlContext,
+  stateId: string,
+  entry: RegisterEntry,
+  stateValue: ioBroker.StateValue,
+): Promise<void> {
+  // Every request would only run into its timeout and hold up the queue, the
+  // reconnect probe included. The first poll after the reconnect puts the value
+  // the inverter holds back on the state.
+  if (!context.inverter.Status) {
+    context.adapter.log.warn(
+      `Ignoring write to ${stateId}: inverter is offline`,
+    );
+    return;
+  }
+
+  const value = clampWriteValue(entry, stateValue);
 
   if (value === null) {
     context.adapter.log.warn(
-      `Ignoring write to ${stateId}: ${String(state.val)} is not a value this register accepts`,
+      `Ignoring write to ${stateId}: ${String(stateValue)} is not a value this register accepts`,
     );
     // Otherwise the refused value stays on the state, unacknowledged, until the
-    // group comes round in the poll again - minutes on a default setup.
+    // next poll of the group - a whole pollCycle, which can be an hour.
     await readBack(context, stateId);
     return;
   }
 
-  if (value !== Math.round(Number(state.val) * entry.scale)) {
+  if (value !== Math.round(Number(stateValue) * entry.scale)) {
     context.adapter.log.warn(
-      `Clamped write to ${stateId} from ${String(state.val)} to ${value / entry.scale}`,
+      `Clamped write to ${stateId} from ${String(stateValue)} to ${value / entry.scale}`,
     );
   }
 
@@ -184,10 +235,11 @@ async function applyControlWrite(
   // Scripts tend to repeat the same setpoint every cycle, and GoodWe does not
   // say whether these registers end up in flash. Reading the group first costs
   // one small request and spares every write that would change nothing. The
-  // last poll is no substitute: the optional groups take minutes to come round.
+  // last poll is no substitute: it can be a whole pollCycle old, and the GoodWe
+  // app changes these registers as well.
   if (
     groupName !== "" &&
-    (await context.inverter.ReadGroup(groupName)) &&
+    (await context.inverter.ReadGroup(groupName, controlReadOptions)) &&
     context.states.RegisterValue(registerGroups[groupName], entry) ===
       value / entry.scale
   ) {
@@ -199,6 +251,12 @@ async function applyControlWrite(
   }
 
   const written = await context.inverter.WriteRegister(entry.address, value);
+
+  // The adapter unloaded while the write waited in the queue: nothing was sent
+  // and nothing is left to read back or to warn about.
+  if (context.inverter.Closed) {
+    return;
+  }
 
   if (written) {
     context.adapter.log.info(`Wrote ${value} to ${stateId}`);

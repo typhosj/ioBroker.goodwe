@@ -305,10 +305,12 @@ class GoodWeUdp {
     }
     async #requestNow(sendbuf, matcher, name, exception) {
         let lastError;
-        if (this.#closed) {
-            throw new Error("Socket closed");
-        }
         for (let attempt = 0; attempt <= this.#retries; attempt++) {
+            // Checked per attempt: destructor() rejects the pending attempt, and a
+            // retry would send on the socket the adapter just released.
+            if (this.#closed) {
+                throw new Error("Socket closed");
+            }
             try {
                 const response = await new Promise((resolve, reject) => {
                     const request = {
@@ -351,12 +353,14 @@ class GoodWeUdp {
                     this.#status = _a.ConStatus.Online;
                     throw error;
                 }
-                this.#status = _a.ConStatus.Offline;
                 if (attempt < this.#retries) {
                     this.log.debug?.(`${name} retry ${attempt + 1}/${this.#retries}`);
                 }
             }
         }
+        // Offline only once every attempt is lost. A lost answer the retry recovers
+        // is no outage, and a control write arriving meanwhile would be refused.
+        this.#status = _a.ConStatus.Offline;
         throw lastError;
     }
     #buildReadRegisterRequest(start, count) {
@@ -455,6 +459,10 @@ class GoodWeUdp {
             return true;
         }
         catch (error) {
+            // Cut off by the unload, not by the inverter: nothing worth reporting.
+            if (this.#closed) {
+                return false;
+            }
             if (isOptional) {
                 this.#status = previousStatus;
                 if (options.backoff !== false) {
@@ -493,7 +501,9 @@ class GoodWeUdp {
             return true;
         }
         catch (error) {
-            this.log.warn(`WriteRegister ${address}: ${(0, errors_1.errorMessage)(error)}`);
+            if (!this.#closed) {
+                this.log.warn(`WriteRegister ${address}: ${(0, errors_1.errorMessage)(error)}`);
+            }
             return false;
         }
     }
@@ -507,11 +517,19 @@ class GoodWeUdp {
         const wasOnline = this.#status === _a.ConStatus.Online;
         try {
             await this.#request((0, goodwe_discovery_1.buildIdInfoRequest)(), (data) => (0, goodwe_discovery_1.isGoodWeIdInfoResponse)(data), "ReadIdInfo");
+            // Back after a connection loss: a group whose read failed while the
+            // inverter was gone is not unsupported and must not stay paused.
+            if (!wasOnline) {
+                this.#optionalGroupBackoffUntil.clear();
+            }
             return true;
         }
         catch (error) {
             // Only the transition to offline is worth a warning; the scheduler keeps
             // retrying and would otherwise fill the log every reconnect attempt.
+            if (this.#closed) {
+                return false;
+            }
             if (wasOnline) {
                 this.log.warn(`ReadIdInfo: ${(0, errors_1.errorMessage)(error)}`);
             }
@@ -632,6 +650,9 @@ class GoodWeUdp {
     }
     get Status() {
         return this.#status;
+    }
+    get Closed() {
+        return this.#closed;
     }
     get DeviceInfo() {
         return this.#deviceInfo;

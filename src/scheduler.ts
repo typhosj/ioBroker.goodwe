@@ -27,6 +27,11 @@ const PollCycle = {
 // read round robin instead of on the live cycle.
 const OptionalGroupIntervalSeconds = 30;
 
+// Settings a script or the GoodWe app can change at any moment. Behind the
+// round robin slot they were minutes old, so they are read on the live cycle.
+// Both groups are tiny: four and nine registers.
+const SettingsGroups = ["settingsBattery", "settingsEms"];
+
 interface SchedulerAdapter {
   config: ioBroker.AdapterConfig;
   log: ioBroker.Logger;
@@ -178,6 +183,15 @@ class GoodWePollScheduler {
         await this.UpdateRunningData();
         await this.UpdateExtComData();
 
+        // The last live read got no answer, so the inverter is most likely gone.
+        // Reading on would run every remaining request into its timeout before
+        // the reconnect starts, and pause each optional group for an hour.
+        if (!this.inverter.Status) {
+          return;
+        }
+
+        await this.UpdateSettings();
+
         // No early return on pollExtended: IsRegisterGroupEnabled() already
         // applies it, and inverter control keeps its group polled regardless.
         if (this.slowCnt > 0) {
@@ -257,6 +271,17 @@ class GoodWePollScheduler {
   }
 
   /**
+   * Reads the enabled settings groups on the live cycle.
+   */
+  async UpdateSettings(): Promise<void> {
+    for (const groupName of SettingsGroups) {
+      if (this.states.IsRegisterGroupEnabled(groupName)) {
+        await this.ReadOptionalGroup(groupName);
+      }
+    }
+  }
+
+  /**
    * Reads one optional register group per cycle, round robin.
    *
    * Reading all of them in one burst was the largest block of UDP traffic the
@@ -265,8 +290,10 @@ class GoodWePollScheduler {
    * a fraction; none of these groups changes fast enough to notice.
    */
   async UpdateAdditionalRegisterGroups(): Promise<void> {
-    const enabled = Object.keys(optionalGroupConfigs).filter((groupName) =>
-      this.states.IsRegisterGroupEnabled(groupName),
+    const enabled = Object.keys(optionalGroupConfigs).filter(
+      (groupName) =>
+        !SettingsGroups.includes(groupName) &&
+        this.states.IsRegisterGroupEnabled(groupName),
     );
 
     if (enabled.length === 0) {
@@ -277,18 +304,30 @@ class GoodWePollScheduler {
 
     this.optionalGroupIndex = (this.optionalGroupIndex + 1) % enabled.length;
 
+    await this.ReadOptionalGroup(groupName);
+  }
+
+  /**
+   * Reads one optional register group and writes its states.
+   *
+   * @param groupName register group name
+   */
+  async ReadOptionalGroup(groupName: string): Promise<void> {
     // An unsupported optional group sleeps for an hour after a failed read. The
     // group inverter control writes into must not: one lost answer would freeze
     // the writable states for that hour.
     const controlGroup =
       writableGroups.has(groupName) && this.states.IsControlEnabled();
 
-    if (
-      await this.inverter.ReadGroup(groupName, {
-        optional: true,
-        backoff: !controlGroup,
-      })
-    ) {
+    const read = await this.inverter.ReadGroup(groupName, {
+      optional: true,
+      backoff: !controlGroup,
+    });
+
+    // A poll read queued in front of a control write returns the old value, and
+    // writing it would acknowledge that value right after a script set a new
+    // one. The control write reads the group back itself.
+    if (read && !(controlGroup && this.states.IsControlWritePending())) {
       await this.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
 
       // Only this group adds the high words the decoder needs; the base group

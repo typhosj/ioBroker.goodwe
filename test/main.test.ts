@@ -710,8 +710,15 @@ describe("poll traffic", () => {
   function createPollScheduler(
     config: ioBroker.AdapterConfig,
     overrides: Partial<
-      Pick<GoodWeStateManager, "IsRegisterGroupEnabled" | "IsControlEnabled">
+      Pick<
+        GoodWeStateManager,
+        | "IsRegisterGroupEnabled"
+        | "IsControlEnabled"
+        | "IsControlWritePending"
+        | "UpdateStatesFromRegisterMap"
+      >
     > = {},
+    answered: (groupName: string) => boolean = () => true,
   ): {
     readOptions: Map<string, unknown>;
     reads: string[];
@@ -729,16 +736,17 @@ describe("poll traffic", () => {
       ReadGroup: (groupName: string, options?: unknown) => {
         reads.push(groupName);
         readOptions.set(groupName, options);
-        return Promise.resolve(true);
+        return Promise.resolve(answered(groupName));
       },
     } as unknown as GoodWeUdp;
     const states = {
       IsRegisterGroupEnabled: (groupName: string) =>
         groupName !== "bmsDetail" && groupName !== "powerLimit",
       IsControlEnabled: () => false,
+      IsControlWritePending: () => false,
+      UpdateStatesFromRegisterMap: () => Promise.resolve(undefined),
       ...overrides,
       SetConnection: () => Promise.resolve(undefined),
-      UpdateStatesFromRegisterMap: () => Promise.resolve(undefined),
       UpdateDecodedRunningStatuses: () => Promise.resolve(undefined),
       UpdateDecodedBmsStatuses: () => Promise.resolve(undefined),
       UpdateDerivedRunningStates: () => Promise.resolve(undefined),
@@ -775,7 +783,14 @@ describe("poll traffic", () => {
       await scheduler.Poll();
     }
 
-    for (const groupName of ["runningData", "extComData", "bmsInfo"]) {
+    // The settings run with them: a script must not decide on a stale EmsMode.
+    for (const groupName of [
+      "runningData",
+      "extComData",
+      "bmsInfo",
+      "settingsBattery",
+      "settingsEms",
+    ]) {
       assert.equal(
         reads.filter((name) => name === groupName).length,
         12,
@@ -816,8 +831,9 @@ describe("poll traffic", () => {
       await scheduler.Poll();
     }
 
-    const optional = reads.filter((groupName) =>
-      Object.keys(optionalGroupConfigs).includes(groupName),
+    const optional = reads.filter(
+      (groupName) =>
+        groupName in optionalGroupConfigs && !groupName.startsWith("settings"),
     );
 
     assert.deepEqual(optional, ["deviceSimccid", "extComDataExtended"]);
@@ -833,9 +849,10 @@ describe("poll traffic", () => {
       await scheduler.Poll();
     }
 
-    // Three live groups twelve times plus two optional reads plus the single
-    // device info read. Every extra request is another one that can be lost.
-    assert.equal(reads.length, 39);
+    // Three live groups and two settings groups twelve times plus two optional
+    // reads plus the single device info read. Every extra request is another
+    // one that can be lost.
+    assert.equal(reads.length, 63);
   });
 
   it("reads the static device data once per connection", async () => {
@@ -887,13 +904,60 @@ describe("poll traffic", () => {
     // The writable states would otherwise only change after a write of their own.
     assert.deepEqual(
       reads.filter((groupName) => groupName in optionalGroupConfigs),
-      ["settingsEms", "settingsEms"],
+      Array<string>(12).fill("settingsEms"),
     );
     // One lost answer must not freeze the writable states for an hour.
     assert.deepEqual(readOptions.get("settingsEms"), {
       optional: true,
       backoff: false,
     });
+  });
+
+  it("stops the cycle when the live data got no answer", async () => {
+    const harness = createPollScheduler(
+      { ...testConfig, pollCycle: 5 },
+      {},
+      (groupName) => {
+        // The inverter drops off the network during the cycle.
+        const answered = groupName !== "extComData";
+
+        harness.setStatus(answered);
+        return answered;
+      },
+    );
+
+    await harness.scheduler.Poll();
+
+    // Every read behind it would only run into its timeout, delay the
+    // reconnect and pause its group for an hour.
+    assert.deepEqual(harness.reads, [
+      "deviceInfo",
+      "bmsInfo",
+      "runningData",
+      "extComData",
+    ]);
+  });
+
+  it("does not report the old control values while a write runs", async () => {
+    const updated: string[] = [];
+    const { scheduler } = createPollScheduler(
+      { ...testConfig, pollCycle: 5, enableControl: true },
+      {
+        IsControlEnabled: () => true,
+        IsControlWritePending: () => true,
+        UpdateStatesFromRegisterMap: (group: RegisterGroup) => {
+          updated.push(group.name);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    await scheduler.Poll();
+
+    // A read queued in front of the write would acknowledge the value the
+    // script just replaced. The write reads the group back itself.
+    assert.ok(updated.includes("Settings.Battery"));
+    assert.ok(!updated.includes("Settings.Ems"));
   });
 });
 
@@ -1118,16 +1182,22 @@ describe("inverter control", () => {
       writeConfirmed?: boolean;
       readBack?: boolean;
       stored?: number;
+      online?: boolean;
+      closed?: boolean;
     } = {},
   ): {
     acknowledged: StateWrite[];
     context: Parameters<typeof applyControlWrite>[0];
+    readOptions: unknown[];
     reads: string[];
+    sequence: string[];
     updated: string[];
     writes: Array<{ address: number; value: number }>;
   } {
     const writes: Array<{ address: number; value: number }> = [];
     const reads: string[] = [];
+    const readOptions: unknown[] = [];
+    const sequence: string[] = [];
     const updated: string[] = [];
     const acknowledged: StateWrite[] = [];
 
@@ -1136,17 +1206,26 @@ describe("inverter control", () => {
       context: {
         adapter: { log: testLogger, namespace: "goodwe.0" },
         inverter: {
+          Status: options.online !== false,
+          Closed: options.closed === true,
           WriteRegister: (address: number, value: number) => {
             writes.push({ address, value });
+            sequence.push("write");
             return Promise.resolve(options.writeConfirmed !== false);
           },
-          ReadGroup: (groupName: string) => {
+          ReadGroup: (groupName: string, groupOptions?: unknown) => {
             reads.push(groupName);
+            readOptions.push(groupOptions);
             return Promise.resolve(options.readBack !== false);
           },
         },
         states: {
           IsControlEnabled: () => controlEnabled,
+          RunControlWrite: async (write: () => Promise<void>) => {
+            sequence.push("begin");
+            await write();
+            sequence.push("end");
+          },
           UpdateStatesFromRegisterMap: (group: RegisterGroup) => {
             updated.push(group.name);
             return Promise.resolve();
@@ -1158,7 +1237,9 @@ describe("inverter control", () => {
           RegisterValue: () => options.stored ?? null,
         },
       },
+      readOptions,
       reads,
+      sequence,
       updated,
       writes,
     };
@@ -1168,8 +1249,15 @@ describe("inverter control", () => {
     assert.equal(clampWriteValue(exportLimit, 3500.4), 3500);
     assert.equal(clampWriteValue(exportLimit, -1), 0);
     assert.equal(clampWriteValue(exportLimit, 99999), 30000);
-    assert.equal(clampWriteValue(exportLimit, true), 1);
-    assert.equal(clampWriteValue(exportLimit, "3500"), null);
+    // Input fields send numbers as text; an empty field must not become zero.
+    assert.equal(clampWriteValue(exportLimit, "3500"), 3500);
+    assert.equal(clampWriteValue(exportLimit, " 3500.4 "), 3500);
+    assert.equal(clampWriteValue(exportLimit, "-1"), 0);
+    assert.equal(clampWriteValue(exportLimit, " "), null);
+    assert.equal(clampWriteValue(exportLimit, "3500 W"), null);
+    // Number() reads these as 16 and 1000, but nobody typed them as numbers.
+    assert.equal(clampWriteValue(exportLimit, "0x10"), null);
+    assert.equal(clampWriteValue(exportLimit, "1e3"), null);
     assert.equal(clampWriteValue(exportLimit, Number.NaN), null);
     assert.equal(clampWriteValue(exportLimit, null), null);
   });
@@ -1181,6 +1269,18 @@ describe("inverter control", () => {
     assert.equal(clampWriteValue(emsMode, 99), null);
     assert.equal(clampWriteValue(emsMode, 0), null);
     assert.equal(clampWriteValue(emsMode, 4.4), null);
+  });
+
+  it("accepts booleans only on an on/off register", () => {
+    const gridExport = writableEntries.get(
+      "Settings.GridExportEnabled",
+    ) as RegisterEntry;
+
+    assert.equal(clampWriteValue(gridExport, true), 1);
+    assert.equal(clampWriteValue(gridExport, false), 0);
+    // true would mean 1 W on a limit and "Auto" on the EMS mode.
+    assert.equal(clampWriteValue(exportLimit, true), null);
+    assert.equal(clampWriteValue(emsMode, true), null);
   });
 
   it("scales the state value into register units", () => {
@@ -1226,7 +1326,81 @@ describe("inverter control", () => {
     assert.deepEqual(control.writes, [{ address: 47510, value: 30000 }]);
     // Read before the write to compare, read after it to confirm.
     assert.deepEqual(control.reads, ["settingsEms", "settingsEms"]);
+    // Like the poll: a lost answer neither takes the connection offline nor
+    // pauses the group of the writable states for an hour.
+    assert.deepEqual(control.readOptions, [
+      { optional: true, backoff: false },
+      { optional: true, backoff: false },
+    ]);
     assert.deepEqual(control.updated, ["Settings.Ems"]);
+    // Marked as pending, so the poll does not report the old value meanwhile.
+    assert.deepEqual(control.sequence, ["begin", "write", "end"]);
+  });
+
+  it("runs control writes one after the other", async () => {
+    const manager = new GoodWeStateManager(
+      { config: testConfig, log: testLogger } as unknown as StateAdapterLike,
+      {} as unknown as GoodWeUdp,
+    );
+    const order: string[] = [];
+    let release = (): void => {};
+
+    const first = manager.RunControlWrite(async () => {
+      order.push("first begin");
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      order.push("first end");
+    });
+    const second = manager.RunControlWrite(() => {
+      order.push("second");
+      return Promise.resolve();
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    // Switched on and off again: the second write must not read the register
+    // before the first one reached it, or it skips itself as already done.
+    assert.deepEqual(order, ["first begin"]);
+
+    release();
+    await Promise.all([first, second]);
+
+    assert.deepEqual(order, ["first begin", "first end", "second"]);
+  });
+
+  it("refuses a write while the inverter is offline", async () => {
+    const control = createControlContext(true, { online: false });
+
+    await applyControlWrite(control.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: false,
+    } as ioBroker.State);
+
+    // Each request would only wait out its timeout and hold up the reconnect.
+    assert.deepEqual(control.writes, []);
+    assert.deepEqual(control.reads, []);
+  });
+
+  it("marks a control write as pending until it finished", async () => {
+    const manager = new GoodWeStateManager(
+      { config: testConfig, log: testLogger } as unknown as StateAdapterLike,
+      {} as unknown as GoodWeUdp,
+    );
+    let pendingInside = false;
+
+    await manager.RunControlWrite(() => {
+      pendingInside = manager.IsControlWritePending();
+      return Promise.resolve();
+    });
+
+    assert.equal(pendingInside, true);
+    assert.equal(manager.IsControlWritePending(), false);
+
+    await assert.rejects(
+      manager.RunControlWrite(() => Promise.reject(new Error("lost"))),
+    );
+    // A failed write must not block the poll updates for good.
+    assert.equal(manager.IsControlWritePending(), false);
   });
 
   it("skips a write the inverter already holds", async () => {
@@ -1242,6 +1416,23 @@ describe("inverter control", () => {
     assert.deepEqual(control.writes, []);
     assert.deepEqual(control.reads, ["settingsEms"]);
     assert.deepEqual(control.updated, ["Settings.Ems"]);
+  });
+
+  it("stops a write the unload cut off", async () => {
+    const control = createControlContext(true, {
+      writeConfirmed: false,
+      closed: true,
+    });
+
+    await applyControlWrite(control.context, "goodwe.0.Settings.EmsMode", {
+      val: 4,
+      ack: false,
+    } as ioBroker.State);
+
+    // No read-back and no warning: the socket is gone, not the inverter.
+    assert.deepEqual(control.reads, ["settingsEms"]);
+    assert.deepEqual(control.updated, []);
+    assert.deepEqual(control.acknowledged, []);
   });
 
   it("restores the state of a refused write from the inverter", async () => {
@@ -1831,6 +2022,101 @@ describe("UDP frame safety", () => {
     );
     assert.equal(await inverter.ReadGroup("settingsEms", options), false);
     assert.equal(await inverter.ReadGroup("settingsEms", options), true);
+  });
+
+  it("reads a paused optional group again after a reconnect", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      // The inverter drops off the network: the optional read pauses its group,
+      // the live read takes the connection down.
+      null,
+      null,
+      buildIdInfoResponse(),
+      buildRegisterResponse(registerGroups.settingsBattery, () => {}),
+    ]);
+    const inverter = createInverter(socket);
+    const options = { optional: true };
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(await inverter.ReadGroup("settingsBattery", options), false);
+    assert.equal(await inverter.ReadGroup("runningData"), false);
+    assert.equal(inverter.Status, false);
+    assert.equal(await inverter.ReadIdInfo(), true);
+    // The group only failed because the inverter was gone, so it must not stay
+    // paused for an hour.
+    assert.equal(await inverter.ReadGroup("settingsBattery", options), true);
+  });
+
+  it("stays online while a retry recovers a lost answer", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      null,
+      buildRegisterResponse(registerGroups.runningData, () => {}),
+    ]);
+    const inverter = createInverter(socket);
+    const statusAtSend: boolean[] = [];
+    const send = socket.send.bind(socket);
+
+    socket.send = (...args: Parameters<ScriptedSocket["send"]>) => {
+      statusAtSend.push(inverter.Status);
+      send(...args);
+    };
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 1,
+      }),
+      true,
+    );
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    // Connect, first attempt, retry. A control write arriving during the retry
+    // reads this status and would be refused as offline.
+    assert.deepEqual(statusAtSend, [false, true, true]);
+  });
+
+  it("stays quiet about requests the unload cut off", async () => {
+    const warnings: string[] = [];
+    const socket = new ScriptedSocket([buildIdInfoResponse(), null]);
+    const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
+      "node:dgram": { createSocket: () => socket },
+    }) as { GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp };
+    const inverter = new GoodWeUdp({
+      log: {
+        ...testLogger,
+        warn: (message: string) => warnings.push(message),
+      },
+    });
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 2,
+      }),
+      true,
+    );
+
+    const write = inverter.WriteRegister(47511, 4);
+    const read = inverter.ReadGroup("runningData");
+
+    await new Promise((resolve) => setImmediate(resolve));
+    inverter.destructor();
+
+    assert.equal(await write, false);
+    assert.equal(await read, false);
+    assert.equal(inverter.Closed, true);
+    // The adapter is shutting down; a warning here only reads like a fault.
+    assert.deepEqual(warnings, []);
   });
 
   it("logs an unmatched frame when the logger appears after construction", () => {
