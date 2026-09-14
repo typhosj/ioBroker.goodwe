@@ -154,7 +154,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.2.0 (2026-09-14)
 - Added the battery settings (registers 45350-45358) and the EMS settings (registers 47509-47512) as new `Settings.*` states, enabled with the new `pollSettings` option and read on every poll cycle.
 - Added optional inverter control: with the new `enableControl` option the states `Settings.EmsMode`, `Settings.EmsPowerLimit`, `Settings.GridExportEnabled` and `Settings.GridExportLimit` become writable and are sent to the inverter as single register writes. Only these four registers are ever written: limit values are clamped to the range the adapter allows, mode values outside the list in this README are refused, numbers written as text are accepted, a write while the inverter is offline is refused, a value the inverter already holds is not written again, and the register group is read back after every write. While control is on, the EMS settings stay polled whatever `pollSettings` and `pollExtended` say. Control is off by default.
 - Fixed optional register groups pausing for an hour after a connection loss. A group whose read failed only because the inverter was gone is read again right after the reconnect, and a poll cycle whose live data got no answer stops there instead of running the remaining reads into their timeouts as well.
@@ -190,12 +190,6 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 * Switched the packaged adapter entry point to the compiled `build/main.js`
 * Updated CI to run on Node.js 22 and 24 and verify the npm package contents
 * Replaced additional mode `*Text` states with enum labels on the numeric mode states
-
-### 1.0.9 (2026-06-23)
-* Added validation for usable IPv4 inverter addresses
-* Added GoodWe UDP reachability check from the admin configuration
-* Added `/24` network discovery for GoodWe inverters via UDP port 8899
-* Added discovered inverter selection in the IP address field with model and serial information
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

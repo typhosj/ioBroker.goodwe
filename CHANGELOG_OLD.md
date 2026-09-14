@@ -1,5 +1,19 @@
 # Older changes
 
+### 1.0.9 (2026-06-23)
+* Added validation for usable IPv4 inverter addresses
+* Added GoodWe UDP reachability check from the admin configuration
+* Added `/24` network discovery for GoodWe inverters via UDP port 8899
+* Added discovered inverter selection in the IP address field with model and serial information
+
+### 1.0.8 (2026-06-23)
+* Added separate basic and advanced configuration tabs
+* Added per-group optional register polling defaults based on real device feedback
+* Removed legacy misspelled states and added startup cleanup for them
+* Cleaned up legacy hard-coded decoder code in favor of the register map
+* Finalized selected state units and roles
+* Expanded README with state overview and troubleshooting
+
 ### 1.0.7 (2026-06-23)
 * Hardened UDP communication with async request handling, timeout and retry support
 * Added specification based register map and extended GoodWe register groups
@@ -33,10 +47,3 @@
 
 ### 1.0.0 (2022-12-31)
 * (Thomas Schönberger) initial release
-## 1.0.8 (2026-06-23)
-* Added separate basic and advanced configuration tabs
-* Added per-group optional register polling defaults based on real device feedback
-* Removed legacy misspelled states and added startup cleanup for them
-* Cleaned up legacy hard-coded decoder code in favor of the register map
-* Finalized selected state units and roles
-* Expanded README with state overview and troubleshooting
