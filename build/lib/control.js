@@ -58,6 +58,22 @@ function clampWriteValue(entry, value) {
     return Math.min(range.max, Math.max(range.min, register));
 }
 /**
+ * Reads the register group of a state and writes what the inverter holds.
+ *
+ * Returns false when the state has no group or the read failed.
+ *
+ * @param context adapter, inverter and state manager
+ * @param stateId state id without the adapter namespace
+ */
+async function readBack(context, stateId) {
+    const groupName = (0, register_map_1.registerGroupOfState)(stateId);
+    if (groupName === "" || !(await context.inverter.ReadGroup(groupName))) {
+        return false;
+    }
+    await context.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
+    return true;
+}
+/**
  * Sends one acknowledged state write to the inverter.
  *
  * Only whitelisted registers are written, and only with a value inside the
@@ -87,6 +103,9 @@ async function applyControlWrite(context, id, state) {
     const value = clampWriteValue(entry, state.val);
     if (value === null) {
         context.adapter.log.warn(`Ignoring write to ${stateId}: ${String(state.val)} is not a value this register accepts`);
+        // Otherwise the refused value stays on the state, unacknowledged, until the
+        // group comes round in the poll again - minutes on a default setup.
+        await readBack(context, stateId);
         return;
     }
     if (value !== Math.round(Number(state.val) * entry.scale)) {
@@ -114,8 +133,7 @@ async function applyControlWrite(context, id, state) {
     }
     // Read back either way: a rejected write leaves the state showing a value the
     // inverter never stored.
-    if (groupName !== "" && (await context.inverter.ReadGroup(groupName))) {
-        await context.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
+    if (await readBack(context, stateId)) {
         return;
     }
     // Without a read-back the state would stay unacknowledged forever, showing a

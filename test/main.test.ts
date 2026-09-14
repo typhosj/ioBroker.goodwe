@@ -1244,6 +1244,20 @@ describe("inverter control", () => {
     assert.deepEqual(control.updated, ["Settings.Ems"]);
   });
 
+  it("restores the state of a refused write from the inverter", async () => {
+    const control = createControlContext();
+
+    await applyControlWrite(control.context, "goodwe.0.Settings.EmsMode", {
+      val: 99,
+      ack: false,
+    } as ioBroker.State);
+
+    // Seen live: without this 99 stayed on the state, unacknowledged, for minutes.
+    assert.deepEqual(control.writes, []);
+    assert.deepEqual(control.reads, ["settingsEms"]);
+    assert.deepEqual(control.updated, ["Settings.Ems"]);
+  });
+
   it("ignores acknowledged values, read-only states and disabled control", async () => {
     const acknowledged = createControlContext();
     await applyControlWrite(acknowledged.context, "goodwe.0.Settings.EmsMode", {

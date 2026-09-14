@@ -106,8 +106,8 @@ single register writes. Every other state stays read-only.
 `GridExportLimit` and `EmsPowerLimit` clamp values outside their range. `GridExportEnabled` and
 `EmsMode` are enum registers and accept only the values listed above - a value outside that list is
 refused instead of being clamped into a mode nobody asked for. Values that are not numbers are
-refused as well, and the register group is read back after every write, so the states show what the
-inverter really stored.
+refused as well. After a refused value and after every write the register group is read back, so the
+states show what the inverter really stored.
 
 Before a write the adapter reads the register group and skips the write when the inverter already holds
 the value. A script that repeats the same setpoint every cycle therefore does not send a register write

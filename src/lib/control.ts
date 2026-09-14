@@ -32,6 +32,12 @@ interface ControlAdapter {
   namespace: string;
 }
 
+interface ControlContext {
+  adapter: ControlAdapter;
+  inverter: ControlInverter;
+  states: ControlStates;
+}
+
 /**
  * Returns the ioBroker state ids the control path accepts writes for.
  */
@@ -97,6 +103,28 @@ function clampWriteValue(
 }
 
 /**
+ * Reads the register group of a state and writes what the inverter holds.
+ *
+ * Returns false when the state has no group or the read failed.
+ *
+ * @param context adapter, inverter and state manager
+ * @param stateId state id without the adapter namespace
+ */
+async function readBack(
+  context: ControlContext,
+  stateId: string,
+): Promise<boolean> {
+  const groupName = registerGroupOfState(stateId);
+
+  if (groupName === "" || !(await context.inverter.ReadGroup(groupName))) {
+    return false;
+  }
+
+  await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
+  return true;
+}
+
+/**
  * Sends one acknowledged state write to the inverter.
  *
  * Only whitelisted registers are written, and only with a value inside the
@@ -111,11 +139,7 @@ function clampWriteValue(
  * @param state changed state
  */
 async function applyControlWrite(
-  context: {
-    adapter: ControlAdapter;
-    inverter: ControlInverter;
-    states: ControlStates;
-  },
+  context: ControlContext,
   id: string,
   state: ioBroker.State | null | undefined,
 ): Promise<void> {
@@ -143,6 +167,9 @@ async function applyControlWrite(
     context.adapter.log.warn(
       `Ignoring write to ${stateId}: ${String(state.val)} is not a value this register accepts`,
     );
+    // Otherwise the refused value stays on the state, unacknowledged, until the
+    // group comes round in the poll again - minutes on a default setup.
+    await readBack(context, stateId);
     return;
   }
 
@@ -181,8 +208,7 @@ async function applyControlWrite(
 
   // Read back either way: a rejected write leaves the state showing a value the
   // inverter never stored.
-  if (groupName !== "" && (await context.inverter.ReadGroup(groupName))) {
-    await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
+  if (await readBack(context, stateId)) {
     return;
   }
 
