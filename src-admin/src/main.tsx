@@ -291,8 +291,9 @@ function GoodWeConfig(props: {
       if (response.valid && response.reachable) {
         showMessage(t("Inverter reachable"), "success");
       } else {
+        const reason = response.error || t("Inverter not reachable");
         showMessage(
-          `${response.error || t("Inverter not reachable")} ${t(NOT_FOUND_HINT)}`,
+          `${/[.!?]$/.test(reason) ? reason : `${reason}.`} ${t(NOT_FOUND_HINT)}`,
           "error",
         );
       }
