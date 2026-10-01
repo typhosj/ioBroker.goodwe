@@ -220,7 +220,7 @@ describe("register map", () => {
       "%",
       "A",
       "Ah",
-      "C",
+      "°C",
       "Hz",
       "VA",
       "V",
@@ -489,6 +489,120 @@ describe("state mapping", () => {
         },
       },
     });
+  });
+
+  it("moves the old temperature unit C to °C and keeps other units", async () => {
+    const existingUnits: Record<string, string | undefined> = {
+      "RunningData.AirTemperature": "C",
+      "RunningData.ModuleTemperature": "K",
+      "RunningData.RadiatorTemperature": "°C",
+      "RunningData.PvPower": "C",
+    };
+    const updates: { id: string; object: ioBroker.PartialObject }[] = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: (id: string, object: ioBroker.PartialObject) => {
+        updates.push({ id, object });
+        return Promise.resolve(undefined);
+      },
+      getObjectAsync: (id: string) =>
+        Promise.resolve(
+          id in existingUnits
+            ? {
+                _id: id,
+                type: "state",
+                common: {
+                  name: id,
+                  type: "number",
+                  role: "value.temperature",
+                  read: true,
+                  write: false,
+                  unit: existingUnits[id],
+                },
+                native: {},
+              }
+            : undefined,
+        ),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+    const manager = new GoodWeStateManager(adapter, {} as unknown as GoodWeUdp);
+
+    for (const id of Object.keys(existingUnits)) {
+      await manager.UpdateLegacyTemperatureUnit(
+        id,
+        id === "RunningData.PvPower" ? "W" : "°C",
+      );
+    }
+    await manager.UpdateLegacyTemperatureUnit("RunningData.Missing", "°C");
+
+    assert.deepEqual(updates, [
+      {
+        id: "RunningData.AirTemperature",
+        object: { type: "state", common: { unit: "°C" } },
+      },
+    ]);
+  });
+
+  it("creates temperature states with unit °C and runs the unit migration", async () => {
+    const objects: ObjectWrite[] = [];
+    const migrated: string[] = [];
+    const adapter: StateAdapterLike = {
+      config: testConfig,
+      log: testLogger,
+      setObjectNotExistsAsync: (
+        id: string,
+        object: ioBroker.SettableObject,
+      ) => {
+        objects.push({ id, object });
+        return Promise.resolve(undefined);
+      },
+      extendObjectAsync: (id: string) => {
+        migrated.push(id);
+        return Promise.resolve(undefined);
+      },
+      getObjectAsync: (id: string) =>
+        Promise.resolve(
+          id === "RunningData.AirTemperature"
+            ? {
+                _id: id,
+                type: "state",
+                common: {
+                  name: "AirTemperature",
+                  type: "number",
+                  role: "value.temperature",
+                  read: true,
+                  write: false,
+                  unit: "C",
+                },
+                native: {},
+              }
+            : undefined,
+        ),
+      delObjectAsync: () => Promise.resolve(undefined),
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+    const manager = new GoodWeStateManager(adapter, {} as unknown as GoodWeUdp);
+
+    await manager.CreateObjectsFromRegisterMap();
+
+    const temperatures = objects.filter(
+      (entry) =>
+        entry.object.type === "state" &&
+        entry.object.common.role === "value.temperature",
+    );
+
+    assert.ok(temperatures.length > 0);
+    for (const entry of temperatures) {
+      assert.equal(
+        (entry.object.common as ioBroker.StateCommon).unit,
+        "°C",
+        entry.id,
+      );
+    }
+    assert.deepEqual(migrated, ["RunningData.AirTemperature"]);
   });
 
   it("writes mapped register values through setStateChangedAsync", async () => {

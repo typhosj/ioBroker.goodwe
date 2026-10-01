@@ -195,10 +195,10 @@ const registerGroups = {
             }),
             entry(35174, "RunningData.AirTemperature", "AirTemperature", TYPE.S16, {
                 scale: 10,
-                unit: "C",
+                unit: "°C",
             }),
-            entry(35175, "RunningData.ModuleTemperature", "ModuleTemperature", TYPE.S16, { scale: 10, unit: "C" }),
-            entry(35176, "RunningData.RadiatorTemperature", "RadiatorTemperature", TYPE.S16, { scale: 10, unit: "C" }),
+            entry(35175, "RunningData.ModuleTemperature", "ModuleTemperature", TYPE.S16, { scale: 10, unit: "°C" }),
+            entry(35176, "RunningData.RadiatorTemperature", "RadiatorTemperature", TYPE.S16, { scale: 10, unit: "°C" }),
             entry(35177, "RunningData.FunctionBitValue", "FunctionBitValue", TYPE.U16),
             entry(35178, "RunningData.BusVoltage", "BusVoltage", TYPE.U16, {
                 scale: 10,
@@ -332,7 +332,7 @@ const registerGroups = {
             entry(37002, "BMSInfo.Status", "Status", TYPE.U16),
             entry(37003, "BMSInfo.PackTemperature", "PackTemperature", TYPE.U16, {
                 scale: 10,
-                unit: "C",
+                unit: "°C",
             }),
             entry(37004, "BMSInfo.CurrentMaxCharge", "CurrentMaxCharge", TYPE.U16, {
                 unit: "A",
@@ -420,8 +420,8 @@ const registerGroups = {
             entry(37017, "BMSInfo.MinimumCellTemperatureID", "MinimumCellTemperatureID", TYPE.U16),
             entry(37018, "BMSInfo.MaximumCellVoltageID", "MaximumCellVoltageID", TYPE.U16),
             entry(37019, "BMSInfo.MinimumCellVoltageID", "MinimumCellVoltageID", TYPE.U16),
-            entry(37020, "BMSInfo.MaximumCellTemperature", "MaximumCellTemperature", TYPE.U16, { scale: 10, unit: "C" }),
-            entry(37021, "BMSInfo.MinimumCellTemperature", "MinimumCellTemperature", TYPE.U16, { scale: 10, unit: "C" }),
+            entry(37020, "BMSInfo.MaximumCellTemperature", "MaximumCellTemperature", TYPE.U16, { scale: 10, unit: "°C" }),
+            entry(37021, "BMSInfo.MinimumCellTemperature", "MinimumCellTemperature", TYPE.U16, { scale: 10, unit: "°C" }),
             entry(37022, "BMSInfo.MaximumCellVoltage", "MaximumCellVoltage", TYPE.U16, { unit: "mV" }),
             entry(37023, "BMSInfo.MinimumCellVoltage", "MinimumCellVoltage", TYPE.U16, { unit: "mV" }),
             ...range(1, 32).map((number) => entry(37023 + number, `BMSInfo.PassInformation${number}`, `PassInformation${number}`, TYPE.U16)),
@@ -721,7 +721,7 @@ function roleForUnit(unit) {
             return "value.frequency";
         case "kWh":
             return "value.energy";
-        case "C":
+        case "°C":
             return "value.temperature";
         case "mV":
             return "value.voltage";

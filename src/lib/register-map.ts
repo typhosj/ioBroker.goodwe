@@ -355,21 +355,21 @@ const registerGroups: Record<string, RegisterGroup> = {
       }),
       entry(35174, "RunningData.AirTemperature", "AirTemperature", TYPE.S16, {
         scale: 10,
-        unit: "C",
+        unit: "°C",
       }),
       entry(
         35175,
         "RunningData.ModuleTemperature",
         "ModuleTemperature",
         TYPE.S16,
-        { scale: 10, unit: "C" },
+        { scale: 10, unit: "°C" },
       ),
       entry(
         35176,
         "RunningData.RadiatorTemperature",
         "RadiatorTemperature",
         TYPE.S16,
-        { scale: 10, unit: "C" },
+        { scale: 10, unit: "°C" },
       ),
       entry(
         35177,
@@ -575,7 +575,7 @@ const registerGroups: Record<string, RegisterGroup> = {
       entry(37002, "BMSInfo.Status", "Status", TYPE.U16),
       entry(37003, "BMSInfo.PackTemperature", "PackTemperature", TYPE.U16, {
         scale: 10,
-        unit: "C",
+        unit: "°C",
       }),
       entry(37004, "BMSInfo.CurrentMaxCharge", "CurrentMaxCharge", TYPE.U16, {
         unit: "A",
@@ -805,14 +805,14 @@ const registerGroups: Record<string, RegisterGroup> = {
         "BMSInfo.MaximumCellTemperature",
         "MaximumCellTemperature",
         TYPE.U16,
-        { scale: 10, unit: "C" },
+        { scale: 10, unit: "°C" },
       ),
       entry(
         37021,
         "BMSInfo.MinimumCellTemperature",
         "MinimumCellTemperature",
         TYPE.U16,
-        { scale: 10, unit: "C" },
+        { scale: 10, unit: "°C" },
       ),
       entry(
         37022,
@@ -1401,7 +1401,7 @@ function roleForUnit(unit?: string): string {
       return "value.frequency";
     case "kWh":
       return "value.energy";
-    case "C":
+    case "°C":
       return "value.temperature";
     case "mV":
       return "value.voltage";

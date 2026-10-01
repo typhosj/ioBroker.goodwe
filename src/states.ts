@@ -216,6 +216,7 @@ class GoodWeStateManager {
           },
         });
         await this.UpdateExistingStateEnums(item.state, item.states);
+        await this.UpdateLegacyTemperatureUnit(item.state, item.unit);
 
         if (item.writable !== undefined) {
           await this.UpdateExistingControlFlags(item.state, role, writable);
@@ -280,6 +281,34 @@ class GoodWeStateManager {
     await this.adapter.extendObjectAsync(id, {
       type: "state",
       common: { role, write: writable },
+    });
+  }
+
+  /**
+   * Moves temperature states of older versions from unit "C" to "°C".
+   *
+   * Only the exact old value is replaced, so a unit the user set by hand stays.
+   *
+   * @param id state id
+   * @param unit unit the register map assigns
+   */
+  async UpdateLegacyTemperatureUnit(
+    id: string,
+    unit: string | undefined,
+  ): Promise<void> {
+    if (unit !== "°C") {
+      return;
+    }
+
+    const object = await this.adapter.getObjectAsync(id);
+
+    if (object?.type !== "state" || object.common.unit !== "C") {
+      return;
+    }
+
+    await this.adapter.extendObjectAsync(id, {
+      type: "state",
+      common: { unit },
     });
   }
 
