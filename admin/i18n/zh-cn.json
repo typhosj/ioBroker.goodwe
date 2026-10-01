@@ -3,6 +3,7 @@
     "Action": "操作",
     "Advanced settings": "高级设置",
     "Basic settings": "基本设置",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "请检查逆变器是否为 ET/EH/BH/BT 系列，其 WiFi/LAN 模块是否在线，以及 ioBroker 能否通过 UDP 端口 8899 访问它（中间不能有中继器、访客网络或 VLAN）。请参阅 README 中的故障排除。",
     "Checking...": "正在检查...",
     "Discover inverters": "发现逆变器",
     "Discovery subnet": "发现子网",

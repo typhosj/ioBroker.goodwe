@@ -193,6 +193,9 @@ function t(text: string, ...args: Array<string | number>): string {
   return I18n.t(text, ...args);
 }
 
+const NOT_FOUND_HINT =
+  "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.";
+
 function normalizeNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
 
@@ -288,7 +291,10 @@ function GoodWeConfig(props: {
       if (response.valid && response.reachable) {
         showMessage(t("Inverter reachable"), "success");
       } else {
-        showMessage(response.error || t("Inverter not reachable"), "error");
+        showMessage(
+          `${response.error || t("Inverter not reachable")} ${t(NOT_FOUND_HINT)}`,
+          "error",
+        );
       }
     } catch (error) {
       showMessage(
@@ -588,7 +594,8 @@ function DiscoveryResult(props: {
   if (props.found.length === 0) {
     return (
       <Alert severity="info" sx={{ mt: 2, mb: 3 }}>
-        {t("No inverter found. Searched %s addresses.", props.searched)}
+        {t("No inverter found. Searched %s addresses.", props.searched)}{" "}
+        {t(NOT_FOUND_HINT)}
       </Alert>
     );
   }

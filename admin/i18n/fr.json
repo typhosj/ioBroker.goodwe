@@ -3,6 +3,7 @@
     "Action": "Action",
     "Advanced settings": "Paramètres avancés",
     "Basic settings": "Paramètres de base",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Vérifiez que l'onduleur est un modèle ET/EH/BH/BT, que son module WiFi/LAN est en ligne et qu'ioBroker l'atteint sur le port UDP 8899 (sans répéteur, réseau invité ou VLAN entre les deux). Voir le dépannage dans le README.",
     "Checking...": "Vérification...",
     "Discover inverters": "Découvrir les onduleurs",
     "Discovery subnet": "Sous-réseau de découverte",

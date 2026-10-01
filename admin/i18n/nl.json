@@ -3,6 +3,7 @@
     "Action": "Actie",
     "Advanced settings": "Geavanceerde instellingen",
     "Basic settings": "Basisinstellingen",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Controleer of de omvormer een ET/EH/BH/BT-model is, de WiFi/LAN-module online is en ioBroker hem bereikt via UDP-poort 8899 (geen repeater, gastnetwerk of VLAN ertussen). Zie Probleemoplossing in de README.",
     "Checking...": "Controleren...",
     "Discover inverters": "Omvormers zoeken",
     "Discovery subnet": "Zoeksubnet",
