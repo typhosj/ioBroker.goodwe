@@ -166,7 +166,8 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	### **WORK IN PROGRESS**
 -->
 ### **WORK IN PROGRESS**
-- Temperature states now carry the unit `°C` instead of `C`, so charts, widgets and the type detector show and recognise them as temperatures. Existing states are updated on the next start; a unit you changed by hand is kept.
+- Temperature states now carry the unit `°C` instead of `C`, so charts, widgets and the type detector show and recognise them as temperatures.
+- States created by older versions get their unit and specific role on the next start: many still had no unit and the generic role `value`, so voltage, current, power and temperature were not recognised. Only a missing unit, the unit `C` and the role `value` are replaced; a unit or role you set by hand is kept, and writable control states are left alone.
 - When the search finds no inverter or the IP check fails, the settings page now says what to check, and the README has a new troubleshooting section for it (reported in the forum).
 
 ### 1.2.0 (2026-09-14)

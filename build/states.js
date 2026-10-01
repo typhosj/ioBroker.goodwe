@@ -155,7 +155,9 @@ class GoodWeStateManager {
                     },
                 });
                 await this.UpdateExistingStateEnums(item.state, item.states);
-                await this.UpdateLegacyTemperatureUnit(item.state, item.unit);
+                if (item.writable === undefined) {
+                    await this.UpdateLegacyMetadata(item.state, role, item.unit);
+                }
                 if (item.writable !== undefined) {
                     await this.UpdateExistingControlFlags(item.state, role, writable);
                 }
@@ -206,25 +208,36 @@ class GoodWeStateManager {
         });
     }
     /**
-     * Moves temperature states of older versions from unit "C" to "°C".
+     * Brings read-only states created by older versions up to the register map.
      *
-     * Only the exact old value is replaced, so a unit the user set by hand stays.
+     * Early versions created states without unit and with the generic role
+     * "value", and the temperature states with unit "C". setObjectNotExistsAsync
+     * never touches an existing object, so those states kept that metadata. Only
+     * these exact old values are replaced: a missing unit, unit "C" where the map
+     * says "°C", and role "value" where the map has a specific role. A unit or
+     * role the user set by hand stays.
      *
      * @param id state id
+     * @param role role the state gets now
      * @param unit unit the register map assigns
      */
-    async UpdateLegacyTemperatureUnit(id, unit) {
-        if (unit !== "°C") {
-            return;
-        }
+    async UpdateLegacyMetadata(id, role, unit) {
         const object = await this.adapter.getObjectAsync(id);
-        if (object?.type !== "state" || object.common.unit !== "C") {
+        if (object?.type !== "state") {
             return;
         }
-        await this.adapter.extendObjectAsync(id, {
-            type: "state",
-            common: { unit },
-        });
+        const common = {};
+        const current = object.common.unit;
+        if (unit && (!current || (current === "C" && unit === "°C"))) {
+            common.unit = unit;
+        }
+        if (object.common.role === "value" && role !== "value") {
+            common.role = role;
+        }
+        if (Object.keys(common).length === 0) {
+            return;
+        }
+        await this.adapter.extendObjectAsync(id, { type: "state", common });
     }
     async UpdateExistingStateEnums(id, states) {
         if (!states) {
