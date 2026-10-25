@@ -544,7 +544,11 @@ export class GoodWeUdp {
     }
 
     if (typeof value === "number" && item.scale !== 1) {
-      return value / item.scale;
+      value /= item.scale;
+    }
+
+    if (typeof value === "number" && item.complement !== undefined) {
+      value = item.complement - value;
     }
 
     return value;

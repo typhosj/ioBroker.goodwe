@@ -171,6 +171,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - When the search finds no inverter or the IP check fails, the settings page now says what to check, and the README has a new troubleshooting section for it (reported in the forum).
 - Fixed the smart meter values in `ExtComData`: `EnergyTotalSell` and `EnergyTotalBuy` were 100 times too high, the power factors (`PowerFactor`, `L1/L2/L3.PowerFactor`) were 10 times too high and showed values around 650 when negative, and a negative `TotalReactivePower` showed as about 65000 var. The adapter followed the GoodWe protocol document here, but the meter sends the energy in Wh and signed values. Charts and history of these states jump at the update.
 - Fixed battery temperatures below 0 °C showing as about 6550 °C (`BMSInfo.PackTemperature`, and `BMSInfo.MaximumCellTemperature`/`MinimumCellTemperature` with the extended BMS data).
+- Fixed `Settings.Battery.DischargeDepth` and `DischargeDepthOffline`: they showed the remaining reserve (for example 5 %) instead of the depth of discharge the SolarGo app shows (95 %).
 - `RunningData.DiagStatusActive` now also shows bit 30 of the diagnostic status, `BMSEmergencyCharging`, which newer firmware sets.
 
 ### 1.2.0 (2026-09-14)

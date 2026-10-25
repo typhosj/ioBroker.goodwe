@@ -33,6 +33,9 @@ interface RegisterEntry {
   byteOffset: number;
   states?: ValueStateMap;
   writable?: WritableRange;
+  // The state shows complement minus the register value.
+  // Known limit: read only, control.ts does not convert it back on a write.
+  complement?: number;
 }
 
 interface RegisterGroup {
@@ -54,6 +57,7 @@ interface EntryOptions {
   byteOffset?: number;
   states?: ValueStateMap;
   writable?: WritableRange;
+  complement?: number;
 }
 
 const registerGroups: Record<string, RegisterGroup> = {
@@ -1080,12 +1084,14 @@ const registerGroups: Record<string, RegisterGroup> = {
         TYPE.U16,
         { scale: 10, unit: "A" },
       ),
+      // 45356 and 45358 hold the reserve, 100 minus the depth of discharge the
+      // SolarGo app shows (checked live: 95 % in the app, 5 in the register).
       entry(
         45356,
         "Settings.Battery.DischargeDepth",
         "Battery.DischargeDepth",
         TYPE.U16,
-        { unit: "%", role: "value.battery" },
+        { unit: "%", role: "value.battery", complement: 100 },
       ),
       entry(
         45357,
@@ -1099,7 +1105,7 @@ const registerGroups: Record<string, RegisterGroup> = {
         "Settings.Battery.DischargeDepthOffline",
         "Battery.DischargeDepthOffline",
         TYPE.U16,
-        { unit: "%", role: "value.battery" },
+        { unit: "%", role: "value.battery", complement: 100 },
       ),
     ],
   },
@@ -1201,6 +1207,7 @@ function entry(
     byteOffset: options.byteOffset ?? 0,
     states: options.states,
     writable: options.writable,
+    complement: options.complement,
   };
 }
 

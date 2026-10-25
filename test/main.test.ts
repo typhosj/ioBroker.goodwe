@@ -148,6 +148,8 @@ describe("register map", () => {
       // accepts values that fit into a single register.
       assert.equal(entry.registers, 1, `${entry.state} spans registers`);
       assert.ok(entry.writable && entry.writable.min < entry.writable.max);
+      // The control path does not convert a complement back.
+      assert.equal(entry.complement, undefined, `${entry.state} complement`);
     }
   });
 
@@ -399,6 +401,34 @@ describe("GoodWe UDP parser", () => {
     assert.equal(await inverter.ReadGroup("bmsInfoExtended"), true);
     assert.equal(inverter.BmsInfo.MaximumCellTemperature, -2.5);
     assert.equal(inverter.BmsInfo.MinimumCellTemperature, -3276.8);
+  });
+
+  it("reports the battery discharge depth the way the SolarGo app shows it", async () => {
+    // The register holds the reserve, 100 minus the depth: a live inverter set
+    // to 95 % in the app answers 5. A value above 100 is not clamped, so a
+    // broken register stays visible.
+    for (const [raw, expected] of [
+      [5, 95],
+      [0, 100],
+      [100, 0],
+      [101, -1],
+    ]) {
+      const socket = new FakeSocket(() => {
+        return buildRegisterResponse(
+          registerGroups.settingsBattery,
+          (response) => {
+            response.writeUInt16BE(raw, 5 + (45356 - 45350) * 2);
+            response.writeUInt16BE(raw, 5 + (45358 - 45350) * 2);
+          },
+        );
+      });
+      const inverter = createInverter(socket);
+
+      assert.equal(await inverter.ReadGroup("settingsBattery"), true);
+      const battery = inverter.Settings.Battery as Record<string, number>;
+      assert.equal(battery.DischargeDepth, expected);
+      assert.equal(battery.DischargeDepthOffline, expected);
+    }
   });
 
   it("decodes meter power factors, reactive power and energy totals", async () => {

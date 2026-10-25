@@ -540,9 +540,11 @@ const registerGroups = {
             entry(45353, "Settings.Battery.ChargeCurrent", "Battery.ChargeCurrent", TYPE.U16, { scale: 10, unit: "A" }),
             entry(45354, "Settings.Battery.DischargeVoltage", "Battery.DischargeVoltage", TYPE.U16, { scale: 10, unit: "V" }),
             entry(45355, "Settings.Battery.DischargeCurrent", "Battery.DischargeCurrent", TYPE.U16, { scale: 10, unit: "A" }),
-            entry(45356, "Settings.Battery.DischargeDepth", "Battery.DischargeDepth", TYPE.U16, { unit: "%", role: "value.battery" }),
+            // 45356 and 45358 hold the reserve, 100 minus the depth of discharge the
+            // SolarGo app shows (checked live: 95 % in the app, 5 in the register).
+            entry(45356, "Settings.Battery.DischargeDepth", "Battery.DischargeDepth", TYPE.U16, { unit: "%", role: "value.battery", complement: 100 }),
             entry(45357, "Settings.Battery.DischargeVoltageOffline", "Battery.DischargeVoltageOffline", TYPE.U16, { scale: 10, unit: "V" }),
-            entry(45358, "Settings.Battery.DischargeDepthOffline", "Battery.DischargeDepthOffline", TYPE.U16, { unit: "%", role: "value.battery" }),
+            entry(45358, "Settings.Battery.DischargeDepthOffline", "Battery.DischargeDepthOffline", TYPE.U16, { unit: "%", role: "value.battery", complement: 100 }),
         ],
     },
     settingsEms: {
@@ -622,6 +624,7 @@ function entry(address, state, model, type, options = {}) {
         byteOffset: options.byteOffset ?? 0,
         states: options.states,
         writable: options.writable,
+        complement: options.complement,
     };
 }
 function typeRegisterCount(type) {
