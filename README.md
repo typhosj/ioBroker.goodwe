@@ -169,6 +169,9 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - Temperature states now carry the unit `°C` instead of `C`, so charts, widgets and the type detector show and recognise them as temperatures.
 - States created by older versions get their unit and specific role on the next start: many still had no unit and the generic role `value`, so voltage, current, power and temperature were not recognised. Only a missing unit, the unit `C` and the role `value` are replaced; a unit or role you set by hand is kept, and writable control states are left alone.
 - When the search finds no inverter or the IP check fails, the settings page now says what to check, and the README has a new troubleshooting section for it (reported in the forum).
+- Fixed the smart meter values in `ExtComData`: `EnergyTotalSell` and `EnergyTotalBuy` were 100 times too high, the power factors (`PowerFactor`, `L1/L2/L3.PowerFactor`) were 10 times too high and showed values around 650 when negative, and a negative `TotalReactivePower` showed as about 65000 var. The adapter followed the GoodWe protocol document here, but the meter sends the energy in Wh and signed values. Charts and history of these states jump at the update.
+- Fixed battery temperatures below 0 °C showing as about 6550 °C (`BMSInfo.PackTemperature`, and `BMSInfo.MaximumCellTemperature`/`MinimumCellTemperature` with the extended BMS data).
+- `RunningData.DiagStatusActive` now also shows bit 30 of the diagnostic status, `BMSEmergencyCharging`, which newer firmware sets.
 
 ### 1.2.0 (2026-09-14)
 - Added the battery settings (registers 45350-45358) and the EMS settings (registers 47509-47512) as new `Settings.*` states, enabled with the new `pollSettings` option and read on every poll cycle.

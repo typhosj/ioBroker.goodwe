@@ -528,24 +528,27 @@ const registerGroups: Record<string, RegisterGroup> = {
         TYPE.S16,
         { unit: "W" },
       ),
+      // 36009 to 36017 deviate from the specification (U16, power factor / 100,
+      // energy / 10): a live GM3000 meter sends signed values, the power factor
+      // in thousandths and the energy totals in Wh.
       entry(
         36009,
         "ExtComData.TotalReactivePower",
         "TotalReactivePower",
-        TYPE.U16,
+        TYPE.S16,
         { unit: "var" },
       ),
-      entry(36010, "ExtComData.L1.PowerFactor", "L1.PowerFactor", TYPE.U16, {
-        scale: 100,
+      entry(36010, "ExtComData.L1.PowerFactor", "L1.PowerFactor", TYPE.S16, {
+        scale: 1000,
       }),
-      entry(36011, "ExtComData.L2.PowerFactor", "L2.PowerFactor", TYPE.U16, {
-        scale: 100,
+      entry(36011, "ExtComData.L2.PowerFactor", "L2.PowerFactor", TYPE.S16, {
+        scale: 1000,
       }),
-      entry(36012, "ExtComData.L3.PowerFactor", "L3.PowerFactor", TYPE.U16, {
-        scale: 100,
+      entry(36012, "ExtComData.L3.PowerFactor", "L3.PowerFactor", TYPE.S16, {
+        scale: 1000,
       }),
-      entry(36013, "ExtComData.PowerFactor", "PowerFactor", TYPE.U16, {
-        scale: 100,
+      entry(36013, "ExtComData.PowerFactor", "PowerFactor", TYPE.S16, {
+        scale: 1000,
       }),
       entry(36014, "ExtComData.Frequency", "Frequency", TYPE.U16, {
         scale: 100,
@@ -556,10 +559,10 @@ const registerGroups: Record<string, RegisterGroup> = {
         "ExtComData.EnergyTotalSell",
         "EnergyTotalSell",
         TYPE.FLOAT,
-        { scale: 10, unit: "kWh" },
+        { scale: 1000, unit: "kWh" },
       ),
       entry(36017, "ExtComData.EnergyTotalBuy", "EnergyTotalBuy", TYPE.FLOAT, {
-        scale: 10,
+        scale: 1000,
         unit: "kWh",
       }),
     ],
@@ -573,7 +576,8 @@ const registerGroups: Record<string, RegisterGroup> = {
     target: "BmsInfo",
     entries: [
       entry(37002, "BMSInfo.Status", "Status", TYPE.U16),
-      entry(37003, "BMSInfo.PackTemperature", "PackTemperature", TYPE.U16, {
+      // The specification says U16, but a battery below 0 °C sends a negative value.
+      entry(37003, "BMSInfo.PackTemperature", "PackTemperature", TYPE.S16, {
         scale: 10,
         unit: "°C",
       }),
@@ -804,14 +808,14 @@ const registerGroups: Record<string, RegisterGroup> = {
         37020,
         "BMSInfo.MaximumCellTemperature",
         "MaximumCellTemperature",
-        TYPE.U16,
+        TYPE.S16,
         { scale: 10, unit: "°C" },
       ),
       entry(
         37021,
         "BMSInfo.MinimumCellTemperature",
         "MinimumCellTemperature",
-        TYPE.U16,
+        TYPE.S16,
         { scale: 10, unit: "°C" },
       ),
       entry(

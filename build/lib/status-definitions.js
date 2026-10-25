@@ -125,6 +125,8 @@ const bitfields = {
         "DCOutputOn",
         "SOCProtectOff",
         "Discharge mode for BP",
+        // Not in specification v1.7; newer firmware sets it.
+        "BMSEmergencyCharging",
     ],
     drmStatus: [
         "DRM0",

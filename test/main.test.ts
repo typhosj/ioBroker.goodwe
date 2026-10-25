@@ -255,6 +255,15 @@ describe("status decoding", () => {
       "DRM2",
     ]);
   });
+
+  it("decodes the diagnostic status bits up to bit 30", () => {
+    assert.deepEqual(
+      decodeBitfield(2 ** 29 + 2 ** 30, bitfields.diagnosticStatus),
+      ["Discharge mode for BP", "BMSEmergencyCharging"],
+    );
+    assert.deepEqual(decodeBitfield(2 ** 31, bitfields.diagnosticStatus), []);
+    assert.deepEqual(decodeBitfield(0, bitfields.diagnosticStatus), []);
+  });
 });
 
 describe("GoodWe discovery helpers", () => {
@@ -354,6 +363,69 @@ describe("GoodWe UDP parser", () => {
 
     assert.equal(await inverter.ReadGroup("runningData"), true);
     assert.equal(inverter.RunningData.DerateFrozenPower, -12345);
+  });
+
+  it("decodes battery temperatures below zero", async () => {
+    // The specification lists these registers as U16, which turned -0.1 °C
+    // into 6553.5 °C. The extremes guard the sign bit on both sides.
+    for (const [raw, expected] of [
+      [-1, -0.1],
+      [0, 0],
+      [0x7fff, 3276.7],
+      [-0x8000, -3276.8],
+    ]) {
+      const socket = new FakeSocket(() => {
+        return buildRegisterResponse(registerGroups.bmsInfo, (response) => {
+          response.writeInt16BE(raw, 5 + (37003 - 37002) * 2);
+        });
+      });
+      const inverter = createInverter(socket);
+
+      assert.equal(await inverter.ReadGroup("bmsInfo"), true);
+      assert.equal(inverter.BmsInfo.PackTemperature, expected);
+    }
+
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(
+        registerGroups.bmsInfoExtended,
+        (response) => {
+          response.writeInt16BE(-25, 5 + (37020 - 37000) * 2);
+          response.writeInt16BE(-0x8000, 5 + (37021 - 37000) * 2);
+        },
+      );
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("bmsInfoExtended"), true);
+    assert.equal(inverter.BmsInfo.MaximumCellTemperature, -2.5);
+    assert.equal(inverter.BmsInfo.MinimumCellTemperature, -3276.8);
+  });
+
+  it("decodes meter power factors, reactive power and energy totals", async () => {
+    // Raw values read from a GM3000 meter on a live GW10K-ET. Decoded the way
+    // the specification says, the power factor read 3.33 and 648.18 and the
+    // export total 1.68 million kWh.
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(registerGroups.extComData, (response) => {
+        response.writeInt16BE(-249, 5 + (36009 - 36000) * 2);
+        response.writeUInt16BE(333, 5 + (36010 - 36000) * 2);
+        response.writeInt16BE(-1000, 5 + (36011 - 36000) * 2);
+        response.writeUInt16BE(64818, 5 + (36012 - 36000) * 2);
+        response.writeInt16BE(1000, 5 + (36013 - 36000) * 2);
+        response.writeFloatBE(16790020, 5 + (36015 - 36000) * 2);
+        response.writeFloatBE(1426240, 5 + (36017 - 36000) * 2);
+      });
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("extComData"), true);
+    assert.equal(inverter.ExtComData.TotalReactivePower, -249);
+    assert.equal(inverter.ExtComData.L1.PowerFactor, 0.333);
+    assert.equal(inverter.ExtComData.L2.PowerFactor, -1);
+    assert.equal(inverter.ExtComData.L3.PowerFactor, -0.718);
+    assert.equal(inverter.ExtComData.PowerFactor, 1);
+    assert.equal(inverter.ExtComData.EnergyTotalSell, 16790.02);
+    assert.equal(inverter.ExtComData.EnergyTotalBuy, 1426.24);
   });
 
   it("accepts a padded datagram carrying the answer", async () => {
