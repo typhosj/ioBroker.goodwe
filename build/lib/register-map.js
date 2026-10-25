@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.writableGroups = exports.writableEntries = exports.registerGroups = exports.TYPE = exports.optionalGroupConfigs = void 0;
 exports.registerGroupOfState = registerGroupOfState;
+exports.toStateValue = toStateValue;
 const status_definitions_1 = require("./status-definitions");
 const TYPE = {
     U16: "U16",
@@ -537,14 +538,28 @@ const registerGroups = {
             }),
             entry(45351, "Settings.Battery.Modules", "Battery.Modules", TYPE.U16),
             entry(45352, "Settings.Battery.ChargeVoltage", "Battery.ChargeVoltage", TYPE.U16, { scale: 10, unit: "V" }),
-            entry(45353, "Settings.Battery.ChargeCurrent", "Battery.ChargeCurrent", TYPE.U16, { scale: 10, unit: "A" }),
+            entry(45353, "Settings.Battery.ChargeCurrent", "Battery.ChargeCurrent", TYPE.U16, 
+            // The BMS limits the current further; 100 A matches Home Assistant.
+            { scale: 10, unit: "A", writable: { min: 0, max: 1000 } }),
             entry(45354, "Settings.Battery.DischargeVoltage", "Battery.DischargeVoltage", TYPE.U16, { scale: 10, unit: "V" }),
             entry(45355, "Settings.Battery.DischargeCurrent", "Battery.DischargeCurrent", TYPE.U16, { scale: 10, unit: "A" }),
             // 45356 and 45358 hold the reserve, 100 minus the depth of discharge the
             // SolarGo app shows (checked live: 95 % in the app, 5 in the register).
-            entry(45356, "Settings.Battery.DischargeDepth", "Battery.DischargeDepth", TYPE.U16, { unit: "%", role: "value.battery", complement: 100 }),
+            // The range is in register units: a reserve of 5 to 100 % is a depth of
+            // 0 to 95 %, where the SolarGo app stops.
+            entry(45356, "Settings.Battery.DischargeDepth", "Battery.DischargeDepth", TYPE.U16, {
+                unit: "%",
+                role: "value.battery",
+                complement: 100,
+                writable: { min: 5, max: 100 },
+            }),
             entry(45357, "Settings.Battery.DischargeVoltageOffline", "Battery.DischargeVoltageOffline", TYPE.U16, { scale: 10, unit: "V" }),
-            entry(45358, "Settings.Battery.DischargeDepthOffline", "Battery.DischargeDepthOffline", TYPE.U16, { unit: "%", role: "value.battery", complement: 100 }),
+            entry(45358, "Settings.Battery.DischargeDepthOffline", "Battery.DischargeDepthOffline", TYPE.U16, {
+                unit: "%",
+                role: "value.battery",
+                complement: 100,
+                writable: { min: 5, max: 100 },
+            }),
         ],
     },
     settingsEms: {
@@ -572,6 +587,35 @@ const registerGroups = {
             }),
         ],
     },
+    // 47000 and 47595-47597 are not in specification v1.7. Addresses and the work
+    // mode values follow marcelblijleven/goodwe; a live GW10K-ET with ARM
+    // firmware 29 answers both, older firmware may reject the load control.
+    settingsWorkMode: {
+        name: "Settings.WorkMode",
+        start: 47000,
+        count: 1,
+        channel: "Settings",
+        target: "Settings",
+        entries: [
+            entry(47000, "Settings.WorkMode", "WorkMode", TYPE.U16, {
+                states: status_definitions_1.valueStates.workModeSetting,
+            }),
+        ],
+    },
+    // What the load control values mean is not documented anywhere reliable, so
+    // they stay plain numbers.
+    settingsLoadControl: {
+        name: "Settings.LoadControl",
+        start: 47595,
+        count: 3,
+        channel: "Settings",
+        target: "Settings",
+        entries: [
+            entry(47595, "Settings.LoadControl.Mode", "LoadControl.Mode", TYPE.U16),
+            entry(47596, "Settings.LoadControl.Switch", "LoadControl.Switch", TYPE.U16),
+            entry(47597, "Settings.LoadControl.Soc", "LoadControl.Soc", TYPE.U16),
+        ],
+    },
 };
 exports.registerGroups = registerGroups;
 const optionalGroupConfigs = {
@@ -584,6 +628,8 @@ const optionalGroupConfigs = {
     powerLimit: "pollPowerLimit",
     settingsBattery: "pollSettings",
     settingsEms: "pollSettings",
+    settingsWorkMode: "pollSettings",
+    settingsLoadControl: "pollSettings",
 };
 exports.optionalGroupConfigs = optionalGroupConfigs;
 // Writable register entries by state id. Everything not listed here is refused
@@ -610,6 +656,16 @@ function registerGroupOfState(state) {
         }
     }
     return "";
+}
+/**
+ * Converts a register value into the value the state shows.
+ *
+ * @param item register entry
+ * @param register register value
+ */
+function toStateValue(item, register) {
+    const scaled = register / item.scale;
+    return item.complement === undefined ? scaled : item.complement - scaled;
 }
 function entry(address, state, model, type, options = {}) {
     return {

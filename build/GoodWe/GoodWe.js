@@ -6,6 +6,7 @@ var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GoodWeUdp = exports.GoodweBmSInfo = exports.GoodWeExternalComData = exports.GoodWeMeterPhase = exports.GoodWeDeviceInfo = exports.GoodWeRegister = void 0;
 const node_dgram_1 = __importDefault(require("node:dgram"));
+const promises_1 = require("node:timers/promises");
 const config_1 = require("../lib/config");
 const errors_1 = require("../lib/errors");
 const goodwe_discovery_1 = require("../lib/goodwe-discovery");
@@ -169,6 +170,9 @@ class GoodWeUdp {
     static ConStatus = { Offline: false, Online: true };
     static DefaultTimeoutMs = 5000;
     static DefaultRetries = 1;
+    // The dongle answers a rejected register a second time 240 to 280 ms later
+    // (seen live on a GW10K-ET) and holds the next answer back until then.
+    static ExceptionSettleMs = 600;
     #status = _a.ConStatus.Offline;
     #ipAddr = "";
     #port = 0;
@@ -351,6 +355,9 @@ class GoodWeUdp {
                 // request it declined only costs another timeout.
                 if (error instanceof errors_1.ModbusExceptionError) {
                     this.#status = _a.ConStatus.Online;
+                    // Holds the queue, so the repeated rejection arrives while nothing
+                    // is pending and is dropped instead of failing the next request.
+                    await (0, promises_1.setTimeout)(_a.ExceptionSettleMs, undefined, { ref: false });
                     throw error;
                 }
                 if (attempt < this.#retries) {
@@ -410,13 +417,7 @@ class GoodWeUdp {
                 value = this.#GetUintFromByteArray(data, offset, 2);
                 break;
         }
-        if (typeof value === "number" && item.scale !== 1) {
-            value /= item.scale;
-        }
-        if (typeof value === "number" && item.complement !== undefined) {
-            value = item.complement - value;
-        }
-        return value;
+        return typeof value === "number" ? (0, register_map_1.toStateValue)(item, value) : value;
     }
     #setModelValue(target, path, value) {
         const parts = path.split(".");

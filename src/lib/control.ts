@@ -3,6 +3,7 @@
 import {
   registerGroupOfState,
   registerGroups,
+  toStateValue,
   writableEntries,
 } from "./register-map";
 import type { RegisterEntry } from "./register-map";
@@ -63,10 +64,22 @@ function stripNamespace(id: string, namespace: string): string {
 }
 
 /**
+ * Converts a state value into register units, before rounding.
+ *
+ * @param entry register entry
+ * @param value numeric state value
+ */
+function toRegisterUnits(entry: RegisterEntry, value: number): number {
+  const shown =
+    entry.complement === undefined ? value : entry.complement - value;
+  return shown * entry.scale;
+}
+
+/**
  * Converts a written state value into a register value inside the safe range.
  *
  * The range of a writable entry is in register units, so the state value is
- * scaled first. Returns null for values that cannot be sent at all, so the
+ * converted first. Returns null for values that cannot be sent at all, so the
  * caller can refuse the write instead of guessing a register value for it.
  *
  * Values of an enum register are never clamped: clamping 99 into a mode
@@ -104,7 +117,7 @@ function clampWriteValue(
     return null;
   }
 
-  const scaled = numeric * entry.scale;
+  const scaled = toRegisterUnits(entry, numeric);
   const register = Math.round(scaled);
 
   // An enum register accepts exactly the values it defines: rounding 4.4 into
@@ -224,9 +237,11 @@ async function sendControlWrite(
     return;
   }
 
-  if (value !== Math.round(Number(stateValue) * entry.scale)) {
+  const shown = toStateValue(entry, value);
+
+  if (value !== Math.round(toRegisterUnits(entry, Number(stateValue)))) {
     context.adapter.log.warn(
-      `Clamped write to ${stateId} from ${String(stateValue)} to ${value / entry.scale}`,
+      `Clamped write to ${stateId} from ${String(stateValue)} to ${shown}`,
     );
   }
 
@@ -240,11 +255,10 @@ async function sendControlWrite(
   if (
     groupName !== "" &&
     (await context.inverter.ReadGroup(groupName, controlReadOptions)) &&
-    context.states.RegisterValue(registerGroups[groupName], entry) ===
-      value / entry.scale
+    context.states.RegisterValue(registerGroups[groupName], entry) === shown
   ) {
     context.adapter.log.debug(
-      `Skipping write to ${stateId}: inverter already holds ${value / entry.scale}`,
+      `Skipping write to ${stateId}: inverter already holds ${shown}`,
     );
     await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
     return;
@@ -259,7 +273,7 @@ async function sendControlWrite(
   }
 
   if (written) {
-    context.adapter.log.info(`Wrote ${value} to ${stateId}`);
+    context.adapter.log.info(`Wrote ${shown} to ${stateId}`);
   } else {
     context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
   }
@@ -274,7 +288,7 @@ async function sendControlWrite(
   // value nobody confirmed. Acknowledge what the inverter echoed; a failed
   // write keeps its warning and is corrected by the next poll of the group.
   if (written) {
-    await context.states.Acknowledge(stateId, value / entry.scale);
+    await context.states.Acknowledge(stateId, shown);
   }
 }
 

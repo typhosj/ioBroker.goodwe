@@ -24,10 +24,20 @@ function stripNamespace(id, namespace) {
     return id.startsWith(`${namespace}.`) ? id.slice(namespace.length + 1) : id;
 }
 /**
+ * Converts a state value into register units, before rounding.
+ *
+ * @param entry register entry
+ * @param value numeric state value
+ */
+function toRegisterUnits(entry, value) {
+    const shown = entry.complement === undefined ? value : entry.complement - value;
+    return shown * entry.scale;
+}
+/**
  * Converts a written state value into a register value inside the safe range.
  *
  * The range of a writable entry is in register units, so the state value is
- * scaled first. Returns null for values that cannot be sent at all, so the
+ * converted first. Returns null for values that cannot be sent at all, so the
  * caller can refuse the write instead of guessing a register value for it.
  *
  * Values of an enum register are never clamped: clamping 99 into a mode
@@ -56,7 +66,7 @@ function clampWriteValue(entry, value) {
     if (typeof numeric !== "number" || !Number.isFinite(numeric)) {
         return null;
     }
-    const scaled = numeric * entry.scale;
+    const scaled = toRegisterUnits(entry, numeric);
     const register = Math.round(scaled);
     // An enum register accepts exactly the values it defines: rounding 4.4 into
     // mode 4 would guess, and clamping 99 would pick the highest mode instead.
@@ -140,8 +150,9 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
         await readBack(context, stateId);
         return;
     }
-    if (value !== Math.round(Number(stateValue) * entry.scale)) {
-        context.adapter.log.warn(`Clamped write to ${stateId} from ${String(stateValue)} to ${value / entry.scale}`);
+    const shown = (0, register_map_1.toStateValue)(entry, value);
+    if (value !== Math.round(toRegisterUnits(entry, Number(stateValue)))) {
+        context.adapter.log.warn(`Clamped write to ${stateId} from ${String(stateValue)} to ${shown}`);
     }
     const groupName = (0, register_map_1.registerGroupOfState)(stateId);
     // Scripts tend to repeat the same setpoint every cycle, and GoodWe does not
@@ -151,9 +162,8 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
     // app changes these registers as well.
     if (groupName !== "" &&
         (await context.inverter.ReadGroup(groupName, controlReadOptions)) &&
-        context.states.RegisterValue(register_map_1.registerGroups[groupName], entry) ===
-            value / entry.scale) {
-        context.adapter.log.debug(`Skipping write to ${stateId}: inverter already holds ${value / entry.scale}`);
+        context.states.RegisterValue(register_map_1.registerGroups[groupName], entry) === shown) {
+        context.adapter.log.debug(`Skipping write to ${stateId}: inverter already holds ${shown}`);
         await context.states.UpdateStatesFromRegisterMap(register_map_1.registerGroups[groupName]);
         return;
     }
@@ -164,7 +174,7 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
         return;
     }
     if (written) {
-        context.adapter.log.info(`Wrote ${value} to ${stateId}`);
+        context.adapter.log.info(`Wrote ${shown} to ${stateId}`);
     }
     else {
         context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
@@ -178,6 +188,6 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
     // value nobody confirmed. Acknowledge what the inverter echoed; a failed
     // write keeps its warning and is corrected by the next poll of the group.
     if (written) {
-        await context.states.Acknowledge(stateId, value / entry.scale);
+        await context.states.Acknowledge(stateId, shown);
     }
 }

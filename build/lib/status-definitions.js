@@ -33,6 +33,14 @@ const valueStates = {
         4: "Flash",
         5: "Check",
     },
+    workModeSetting: {
+        0: "General",
+        1: "Off-Grid",
+        2: "Backup",
+        3: "Eco",
+        4: "Peak shaving",
+        5: "Self-use",
+    },
     operationMode: {
         1: "Wait",
         2: "Online",

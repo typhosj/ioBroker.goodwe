@@ -137,6 +137,9 @@ describe("register map", () => {
 
   it("marks only the documented control registers as writable", () => {
     assert.deepEqual(Array.from(writableEntries.keys()).sort(), [
+      "Settings.Battery.ChargeCurrent",
+      "Settings.Battery.DischargeDepth",
+      "Settings.Battery.DischargeDepthOffline",
       "Settings.EmsMode",
       "Settings.EmsPowerLimit",
       "Settings.GridExportEnabled",
@@ -148,8 +151,6 @@ describe("register map", () => {
       // accepts values that fit into a single register.
       assert.equal(entry.registers, 1, `${entry.state} spans registers`);
       assert.ok(entry.writable && entry.writable.min < entry.writable.max);
-      // The control path does not convert a complement back.
-      assert.equal(entry.complement, undefined, `${entry.state} complement`);
     }
   });
 
@@ -429,6 +430,47 @@ describe("GoodWe UDP parser", () => {
       assert.equal(battery.DischargeDepth, expected);
       assert.equal(battery.DischargeDepthOffline, expected);
     }
+  });
+
+  it("reads the work mode and the load control settings", async () => {
+    const socket = new FakeSocket(() => {
+      return buildRegisterResponse(
+        registerGroups.settingsWorkMode,
+        (response) => {
+          response.writeUInt16BE(3, 5);
+        },
+      );
+    });
+    const inverter = createInverter(socket);
+
+    assert.equal(await inverter.ReadGroup("settingsWorkMode"), true);
+    assert.equal(inverter.Settings.WorkMode, 3);
+    assert.equal(registerGroups.settingsWorkMode.entries[0].states?.[3], "Eco");
+
+    const loadSocket = new FakeSocket(() => {
+      return buildRegisterResponse(
+        registerGroups.settingsLoadControl,
+        (response) => {
+          response.writeUInt16BE(1, 5);
+          response.writeUInt16BE(0, 7);
+          response.writeUInt16BE(0xffff, 9);
+        },
+      );
+    });
+    const loadInverter = createInverter(loadSocket);
+
+    assert.equal(await loadInverter.ReadGroup("settingsLoadControl"), true);
+    assert.deepEqual(loadInverter.Settings.LoadControl, {
+      Mode: 1,
+      Switch: 0,
+      Soc: 65535,
+    });
+
+    assert.equal(optionalGroupConfigs.settingsWorkMode, "pollSettings");
+    assert.equal(optionalGroupConfigs.settingsLoadControl, "pollSettings");
+    // Read only: nothing documents what these registers accept.
+    assert.equal(writableGroups.has("settingsWorkMode"), false);
+    assert.equal(writableGroups.has("settingsLoadControl"), false);
   });
 
   it("decodes meter power factors, reactive power and energy totals", async () => {
@@ -1088,6 +1130,26 @@ describe("poll traffic", () => {
     assert.deepEqual(optional, ["deviceSimccid", "extComDataExtended"]);
   });
 
+  it("reads the read-only settings in the slow slot, not every cycle", async () => {
+    const { reads, scheduler } = createPollScheduler({
+      ...testConfig,
+      pollCycle: 5,
+    });
+
+    // 300 seconds: 60 live cycles and ten slow slots, enough for every one of
+    // the nine optional groups once.
+    for (let tick = 0; tick < 300; tick++) {
+      await scheduler.Poll();
+    }
+
+    for (const groupName of ["settingsWorkMode", "settingsLoadControl"]) {
+      const count = reads.filter((name) => name === groupName).length;
+
+      assert.ok(count >= 1 && count <= 2, `${groupName} read ${count} times`);
+    }
+    assert.equal(reads.filter((name) => name === "settingsEms").length, 60);
+  });
+
   it("keeps the request count per minute well below the live cycle", async () => {
     const { reads, scheduler } = createPollScheduler({
       ...testConfig,
@@ -1153,13 +1215,18 @@ describe("poll traffic", () => {
     // The writable states would otherwise only change after a write of their own.
     assert.deepEqual(
       reads.filter((groupName) => groupName in optionalGroupConfigs),
-      Array<string>(12).fill("settingsEms"),
+      Array.from({ length: 12 }, () => [
+        "settingsBattery",
+        "settingsEms",
+      ]).flat(),
     );
     // One lost answer must not freeze the writable states for an hour.
-    assert.deepEqual(readOptions.get("settingsEms"), {
-      optional: true,
-      backoff: false,
-    });
+    for (const groupName of ["settingsBattery", "settingsEms"]) {
+      assert.deepEqual(readOptions.get(groupName), {
+        optional: true,
+        backoff: false,
+      });
+    }
   });
 
   it("stops the cycle when the live data got no answer", async () => {
@@ -1205,8 +1272,9 @@ describe("poll traffic", () => {
 
     // A read queued in front of the write would acknowledge the value the
     // script just replaced. The write reads the group back itself.
-    assert.ok(updated.includes("Settings.Battery"));
+    assert.ok(updated.includes("BMSInfo"));
     assert.ok(!updated.includes("Settings.Ems"));
+    assert.ok(!updated.includes("Settings.Battery"));
   });
 });
 
@@ -1543,8 +1611,72 @@ describe("inverter control", () => {
     assert.equal(clampWriteValue(scaled, 5000), 30000);
   });
 
+  it("writes the battery charge current in tenths of an ampere", () => {
+    const current = writableEntries.get(
+      "Settings.Battery.ChargeCurrent",
+    ) as RegisterEntry;
+
+    assert.equal(clampWriteValue(current, 18.5), 185);
+    assert.equal(clampWriteValue(current, 0), 0);
+    assert.equal(clampWriteValue(current, 100), 1000);
+    assert.equal(clampWriteValue(current, 150), 1000);
+    assert.equal(clampWriteValue(current, -1), 0);
+    assert.equal(clampWriteValue(current, "abc"), null);
+  });
+
+  it("converts the depth of discharge back into the reserve register", () => {
+    for (const id of [
+      "Settings.Battery.DischargeDepth",
+      "Settings.Battery.DischargeDepthOffline",
+    ]) {
+      const depth = writableEntries.get(id) as RegisterEntry;
+
+      // The register holds 100 minus the depth the SolarGo app shows.
+      assert.equal(clampWriteValue(depth, 95), 5, id);
+      assert.equal(clampWriteValue(depth, 90), 10, id);
+      assert.equal(clampWriteValue(depth, "80"), 20, id);
+      assert.equal(clampWriteValue(depth, 0), 100, id);
+      // The SolarGo app stops at 95 %, so a deeper discharge is clamped.
+      assert.equal(clampWriteValue(depth, 99), 5, id);
+      assert.equal(clampWriteValue(depth, -5), 100, id);
+      assert.equal(clampWriteValue(depth, Number.NaN), null, id);
+    }
+  });
+
+  it("writes the depth of discharge and acknowledges it in state units", async () => {
+    const control = createControlContext(true, { readBack: false });
+
+    await applyControlWrite(
+      control.context,
+      "goodwe.0.Settings.Battery.DischargeDepth",
+      { val: 90, ack: false } as ioBroker.State,
+    );
+
+    assert.deepEqual(control.writes, [{ address: 45356, value: 10 }]);
+    assert.deepEqual(control.reads, ["settingsBattery", "settingsBattery"]);
+    assert.deepEqual(control.acknowledged, [
+      { id: "Settings.Battery.DischargeDepth", value: 90, ack: true },
+    ]);
+  });
+
+  it("skips a depth of discharge the inverter already holds", async () => {
+    const control = createControlContext(true, { stored: 95 });
+
+    await applyControlWrite(
+      control.context,
+      "goodwe.0.Settings.Battery.DischargeDepth",
+      { val: 95, ack: false } as ioBroker.State,
+    );
+
+    assert.deepEqual(control.writes, []);
+    assert.deepEqual(control.updated, ["Settings.Battery"]);
+  });
+
   it("subscribes exactly the writable states", () => {
     assert.deepEqual(writableStateIds().sort(), [
+      "Settings.Battery.ChargeCurrent",
+      "Settings.Battery.DischargeDepth",
+      "Settings.Battery.DischargeDepthOffline",
       "Settings.EmsMode",
       "Settings.EmsPowerLimit",
       "Settings.GridExportEnabled",
@@ -1708,7 +1840,7 @@ describe("inverter control", () => {
     const readOnly = createControlContext();
     await applyControlWrite(
       readOnly.context,
-      "goodwe.0.Settings.Battery.DischargeDepth",
+      "goodwe.0.Settings.Battery.Capacity",
       { val: 50, ack: false } as ioBroker.State,
     );
 
@@ -1775,9 +1907,17 @@ describe("inverter control", () => {
       write: true,
     });
     assert.deepEqual(commonOf(objects, "Settings.Battery.DischargeDepth"), {
-      role: "value.battery",
+      role: "level",
+      write: true,
+    });
+    assert.deepEqual(commonOf(objects, "Settings.Battery.DischargeVoltage"), {
+      role: "value.voltage",
       write: false,
     });
+    assert.deepEqual(
+      commonOf(readOnlyObjects, "Settings.Battery.DischargeDepth"),
+      { role: "value.battery", write: false },
+    );
     // A read-only state may not keep the "level" role: ioBroker pairs it with
     // write access, and the repository object check rejects the mismatch.
     assert.deepEqual(commonOf(readOnlyObjects, "Settings.EmsMode"), {
@@ -1906,7 +2046,10 @@ describe("inverter control", () => {
   });
 
   it("keeps the writable register group enabled while control is on", () => {
-    assert.deepEqual(Array.from(writableGroups), ["settingsEms"]);
+    assert.deepEqual(Array.from(writableGroups), [
+      "settingsBattery",
+      "settingsEms",
+    ]);
 
     const manager = new GoodWeStateManager(
       {
@@ -1924,7 +2067,8 @@ describe("inverter control", () => {
     // Without this the poll switches would delete the very objects main.ts
     // subscribes for inverter control.
     assert.equal(manager.IsRegisterGroupEnabled("settingsEms"), true);
-    assert.equal(manager.IsRegisterGroupEnabled("settingsBattery"), false);
+    assert.equal(manager.IsRegisterGroupEnabled("settingsBattery"), true);
+    assert.equal(manager.IsRegisterGroupEnabled("bmsDetail"), false);
   });
 });
 
@@ -1956,6 +2100,53 @@ describe("Modbus exceptions", () => {
     // An answered request proves the inverter is reachable, so the adapter must
     // not drop to offline just because it declined this register.
     assert.equal(inverter.Status, true);
+  });
+
+  it("keeps the repeated rejection away from the next request", async function () {
+    this.timeout(10000);
+
+    // Seen live on a GW10K-ET: the dongle answers a rejected register twice,
+    // 240 to 280 ms apart, and answers the next request only after that. Sent
+    // at once, the next request took the second rejection as its own.
+    let sent = 0;
+    const socket = new EventEmitter() as EventEmitter & {
+      send: FakeSocket["send"];
+      close: () => void;
+    };
+    socket.close = noop;
+    socket.send = (_buffer, _offset, _length, _port, _ip, callback) => {
+      sent++;
+      callback(undefined);
+      const emitAfter = (ms: number, frame: Buffer): void => {
+        setTimeout(() => socket.emit("message", frame), ms);
+      };
+
+      if (sent === 1) {
+        emitAfter(1, buildIdInfoResponse());
+      } else if (sent === 2) {
+        emitAfter(5, buildExceptionResponse(0x03, 2));
+        emitAfter(280, buildExceptionResponse(0x03, 2));
+      } else {
+        emitAfter(
+          sent === 3 ? 300 : 5,
+          buildRegisterResponse(registerGroups.bmsInfo, (response) => {
+            response.writeUInt16BE(77, 5 + (37007 - 37002) * 2);
+          }),
+        );
+      }
+    };
+    const inverter = createInverter(socket);
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, { retries: 0 }),
+      true,
+    );
+    assert.equal(
+      await inverter.ReadGroup("powerLimit", { optional: true }),
+      false,
+    );
+    assert.equal(await inverter.ReadGroup("bmsInfo"), true);
+    assert.equal(inverter.BmsInfo.SOC, 77);
   });
 
   it("reports the exception code instead of a timeout", async () => {

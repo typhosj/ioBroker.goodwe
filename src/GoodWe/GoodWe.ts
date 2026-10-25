@@ -1,4 +1,5 @@
 import dgram from "node:dgram";
+import { setTimeout as sleep } from "node:timers/promises";
 import { clampNumber } from "../lib/config";
 import { errorMessage, ModbusExceptionError } from "../lib/errors";
 import {
@@ -7,6 +8,7 @@ import {
 } from "../lib/goodwe-discovery";
 import {
   registerGroups,
+  toStateValue,
   type RegisterEntry,
   type RegisterGroup,
   TYPE,
@@ -199,6 +201,9 @@ export class GoodWeUdp {
   static ConStatus = { Offline: false, Online: true };
   static DefaultTimeoutMs = 5000;
   static DefaultRetries = 1;
+  // The dongle answers a rejected register a second time 240 to 280 ms later
+  // (seen live on a GW10K-ET) and holds the next answer back until then.
+  static ExceptionSettleMs = 600;
 
   #status = GoodWeUdp.ConStatus.Offline;
   #ipAddr = "";
@@ -456,6 +461,9 @@ export class GoodWeUdp {
         // request it declined only costs another timeout.
         if (error instanceof ModbusExceptionError) {
           this.#status = GoodWeUdp.ConStatus.Online;
+          // Holds the queue, so the repeated rejection arrives while nothing
+          // is pending and is dropped instead of failing the next request.
+          await sleep(GoodWeUdp.ExceptionSettleMs, undefined, { ref: false });
           throw error;
         }
 
@@ -543,15 +551,7 @@ export class GoodWeUdp {
         break;
     }
 
-    if (typeof value === "number" && item.scale !== 1) {
-      value /= item.scale;
-    }
-
-    if (typeof value === "number" && item.complement !== undefined) {
-      value = item.complement - value;
-    }
-
-    return value;
+    return typeof value === "number" ? toStateValue(item, value) : value;
   }
 
   #setModelValue(target: object, path: string, value: ModelValue): void {

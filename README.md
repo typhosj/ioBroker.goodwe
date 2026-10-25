@@ -36,6 +36,7 @@ The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/
 * CEI auto test information
 * Power limit information
 * Battery and EMS settings, including the grid export limit and the EMS mode
+* Work mode and load control settings, read only
 
 Raw register values are kept as ioBroker states. Mode values are numeric states with ioBroker enum labels. Important bitfields are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
 
@@ -61,17 +62,19 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 | `BMSDetail.*` | Detailed BMS values if enabled and supported by the inverter |
 | `CEIAutoTest.*` | CEI auto test values if supported by the inverter |
 | `PowerLimit.*` | Power limit and dispatch values if enabled and supported by the inverter |
-| `Settings.Battery.*` | Battery capacity, module count, charge and discharge limits and discharge depth |
+| `Settings.Battery.*` | Battery capacity, module count, charge and discharge limits and depth of discharge as the SolarGo app shows it |
 | `Settings.GridExportEnabled`, `Settings.GridExportLimit` | Grid export limit switch and value |
 | `Settings.EmsMode`, `Settings.EmsPowerLimit` | EMS mode and the power the EMS mode works with |
+| `Settings.WorkMode` | Work mode set in the SolarGo app: 0 general, 1 off-grid, 2 backup, 3 eco, 4 peak shaving, 5 self-use. Read only |
+| `Settings.LoadControl.*` | Load control output (mode, switch, SOC) as plain numbers, because GoodWe does not document their meaning. Read only, needs ARM firmware 19 or newer |
 
 ## Configuration
 
 * `ipAddr`: IP address of the inverter.
   Empty on fresh installations. The adapter validates this as a usable IPv4 host address on startup.
 * `discoverySubnet`: Optional `/24` subnet for network discovery, for example `192.168.178.0/24`.
-* `pollCycle`: Seconds between two reads of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and the settings (`Settings.*`), from 2 to 3600.
-  The other optional register groups do not follow this cycle: they share one slot that is served round robin about every 30 seconds, and `DeviceInfo` is read once per connection.
+* `pollCycle`: Seconds between two reads of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and the battery and EMS settings, from 2 to 3600.
+  The other optional register groups, `Settings.WorkMode` and `Settings.LoadControl.*` included, do not follow this cycle: they share one slot that is served round robin about every 30 seconds, and `DeviceInfo` is read once per connection.
 * `timeoutMs`: UDP request timeout in milliseconds, from 1000 to 30000.
 * `retries`: Retry count per UDP request, from 0 to 5.
 * `pollExtended`: Master switch for optional register groups. `DeviceInfo`, `RunningData`, `ExtComData` and `BMSInfo` are always read.
@@ -82,8 +85,8 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 * `pollBmsDetail`: Enables BMS detail registers, if supported by the inverter.
 * `pollCeiAutoTest`: Enables CEI auto test registers.
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
-* `pollSettings`: Enables the battery and EMS setting registers.
-* `enableControl`: Makes the EMS and grid export states writable, see below. Off by default.
+* `pollSettings`: Enables the battery, EMS, work mode and load control setting registers.
+* `enableControl`: Makes the EMS, grid export, depth of discharge and charge current states writable, see below. Off by default.
 
 The basic settings page also provides discovery helpers:
 
@@ -93,7 +96,7 @@ The basic settings page also provides discovery helpers:
 
 ## Inverter control
 
-With `enableControl` switched on, four states become writable and are sent to the inverter as
+With `enableControl` switched on, seven states become writable and are sent to the inverter as
 single register writes. Every other state stays read-only.
 
 | State | Register | Range | Description |
@@ -102,8 +105,14 @@ single register writes. Every other state stays read-only.
 | `Settings.GridExportLimit` | 47510 | 0-30000 W | Maximum power fed into the grid |
 | `Settings.EmsMode` | 47511 | 1-12 | EMS mode, for example 1 auto, 11 charge battery, 12 discharge battery |
 | `Settings.EmsPowerLimit` | 47512 | 0-30000 W | Power the selected EMS mode works with |
+| `Settings.Battery.DischargeDepth` | 45356 | 0-95 % | Depth of discharge on grid, as the SolarGo app shows it |
+| `Settings.Battery.DischargeDepthOffline` | 45358 | 0-95 % | Depth of discharge off grid, as the SolarGo app shows it |
+| `Settings.Battery.ChargeCurrent` | 45353 | 0-100 A | Maximum battery charge current; the BMS may limit it further |
 
-`GridExportLimit` and `EmsPowerLimit` clamp values outside their range. `GridExportEnabled` and
+`GridExportLimit`, `EmsPowerLimit`, the depths of discharge and `ChargeCurrent` clamp values outside
+their range. The inverter stores the depth of discharge as the remaining reserve, 100 minus the value
+shown; the adapter converts it both ways, so a written 90 % arrives as a reserve of 10 %. The range
+ends at 95 %, where the SolarGo app stops. `GridExportEnabled` and
 `EmsMode` are enum registers and accept only the values listed above - a value outside that list is
 refused instead of being clamped into a mode nobody asked for. Numbers written as plain decimal text,
 for example `"500"` from an input field, are accepted, and `GridExportEnabled` also takes `true` and
@@ -120,12 +129,12 @@ Before a write the adapter reads the register group and skips the write when the
 the value. A script that repeats the same setpoint every cycle therefore does not send a register write
 every time.
 
-Switching `enableControl` on keeps the EMS setting registers polled even when `pollSettings` or
-`pollExtended` is off, because the writable states have to exist and be read back. Unlike the other
+Switching `enableControl` on keeps the battery and EMS setting registers polled even when
+`pollSettings` or `pollExtended` is off, because the writable states have to exist and be read back. Unlike the other
 optional groups, a failed read of this group does not pause it for an hour; it is tried again in the
 next poll cycle.
 
-The settings are read on every poll cycle, so a change made elsewhere, for example in the GoodWe app,
+The battery and EMS settings are read on every poll cycle, so a change made elsewhere, for example in the GoodWe app,
 shows up in the states within one `pollCycle`.
 
 GoodWe does not document its writable registers. Control is off by default, and switching it on
@@ -165,6 +174,11 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- The depth of discharge (on and off grid) and the battery charge current can be written when inverter control is on. The depth of discharge is written as the SolarGo app shows it; the adapter converts it into the reserve the inverter stores. The depth of discharge is limited to 95 %, the charge current to 100 A.
+- Added the read-only states `Settings.WorkMode` (work mode set in the SolarGo app) and `Settings.LoadControl.*` (load control output), read with `pollSettings` in the slot of the optional groups. Inverters with older firmware may not offer the load control registers.
+- Fixed a rejected register read failing the next request as well: the inverter repeats its rejection about 250 ms later, and the next request took it as its own answer. On an inverter without the EMS registers this could pause the following optional group for an hour.
+
 ### 1.2.1 (2026-10-25)
 - Temperature states now carry the unit `°C` instead of `C`, so charts, widgets and the type detector show and recognise them as temperatures.
 - States created by older versions get their unit and specific role on the next start: many still had no unit and the generic role `value`, so voltage, current, power and temperature were not recognised. Only a missing unit, the unit `C` and the role `value` are replaced; a unit or role you set by hand is kept, and writable control states are left alone.
