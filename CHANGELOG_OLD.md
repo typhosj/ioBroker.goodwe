@@ -1,5 +1,12 @@
 # Older changes
 
+## 1.1.0 (2026-06-24)
+* Migrated the adapter runtime to TypeScript
+* Raised the minimum Node.js version to 22
+* Switched the packaged adapter entry point to the compiled `build/main.js`
+* Updated CI to run on Node.js 22 and 24 and verify the npm package contents
+* Replaced additional mode `*Text` states with enum labels on the numeric mode states
+
 ## 1.0.9 (2026-06-23)
 * Added validation for usable IPv4 inverter addresses
 * Added GoodWe UDP reachability check from the admin configuration

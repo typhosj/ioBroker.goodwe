@@ -165,7 +165,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.2.1 (2026-10-25)
 - Temperature states now carry the unit `°C` instead of `C`, so charts, widgets and the type detector show and recognise them as temperatures.
 - States created by older versions get their unit and specific role on the next start: many still had no unit and the generic role `value`, so voltage, current, power and temperature were not recognised. Only a missing unit, the unit `C` and the role `value` are replaced; a unit or role you set by hand is kept, and writable control states are left alone.
 - When the search finds no inverter or the IP check fails, the settings page now says what to check, and the README has a new troubleshooting section for it (reported in the forum).
@@ -203,13 +203,6 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - Added translations for the admin configuration page and documented numeric setting limits.
 - Avoided rebuilding the admin bundle during GitHub installs.
 - Excluded `CHANGELOG_OLD.md` from the npm package.
-
-### 1.1.0 (2026-06-24)
-* Migrated the adapter runtime to TypeScript
-* Raised the minimum Node.js version to 22
-* Switched the packaged adapter entry point to the compiled `build/main.js`
-* Updated CI to run on Node.js 22 and 24 and verify the npm package contents
-* Replaced additional mode `*Text` states with enum labels on the numeric mode states
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
