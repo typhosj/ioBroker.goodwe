@@ -167,6 +167,7 @@
   },
   "native": {
     "ipAddr": "",
+    "transport": "udp",
     "discoverySubnet": "",
     "pollCycle": 10,
     "timeoutMs": 5000,

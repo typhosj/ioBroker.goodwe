@@ -72,11 +72,13 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 
 * `ipAddr`: IP address of the inverter.
   Empty on fresh installations. The adapter validates this as a usable IPv4 host address on startup.
+* `transport`: How the adapter talks to the inverter. `udp` (default) uses UDP port 8899, the protocol of the GoodWe WiFi dongle. `tcp` uses Modbus TCP on port 502, for the WiFi/LAN dongle 2.0 (WLA0000-01-00P), which does not answer on UDP port 8899 when it is connected by LAN.
+  Modbus TCP is **experimental**: it has not been confirmed on a real dongle 2.0 yet. If it does not work for you, please open an issue with a debug log.
 * `discoverySubnet`: Optional `/24` subnet for network discovery, for example `192.168.178.0/24`.
 * `pollCycle`: Seconds between two reads of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and the battery and EMS settings, from 2 to 3600.
   The other optional register groups, `Settings.WorkMode` and `Settings.LoadControl.*` included, do not follow this cycle: they share one slot that is served round robin about every 30 seconds, and `DeviceInfo` is read once per connection.
-* `timeoutMs`: UDP request timeout in milliseconds, from 1000 to 30000.
-* `retries`: Retry count per UDP request, from 0 to 5.
+* `timeoutMs`: Request timeout in milliseconds, from 1000 to 30000.
+* `retries`: Retry count per request, from 0 to 5.
 * `pollExtended`: Master switch for optional register groups. `DeviceInfo`, `RunningData`, `ExtComData` and `BMSInfo` are always read.
 * `pollSimccid`: Enables optional SIMCCID polling.
 * `pollExtendedMeter`: Enables extended meter registers.
@@ -91,8 +93,8 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 The basic settings page also provides discovery helpers:
 
 * `Inverter IP`: Stores only the inverter IPv4 address.
-* `Validate inverter IP`: Checks the configured address and sends the GoodWe ID request to UDP port 8899.
-* `Discover inverters`: Scans the configured `/24` subnet for GoodWe devices on UDP port 8899 and displays found inverters with IP address, model name, serial number and version information when provided by the inverter.
+* `Validate inverter IP`: Checks the configured address. With `udp` it sends the GoodWe ID request to UDP port 8899, with `tcp` it reads one register over Modbus TCP on port 502.
+* `Discover inverters`: Scans the configured `/24` subnet with the selected connection, on UDP port 8899 or on Modbus TCP port 502, and displays found inverters with IP address, connection, model name, serial number and version information when provided by the inverter. `Use` takes over the IP address and the connection. A Modbus device on port 502 counts as an inverter only when it returns a GoodWe serial number from register 35003. The Modbus TCP search reads a register from every device on port 502 in the subnet; some devices serve only one Modbus client and may drop their existing connection for a moment.
 
 ## Inverter control
 
@@ -145,11 +147,12 @@ Leave it off if you only want to read data.
 
 ### Inverter not found or not reachable
 
-The adapter talks to the inverter directly over UDP port 8899, without the GoodWe cloud. If the search finds nothing or the IP check fails, go through these points:
+The adapter talks to the inverter directly, without the GoodWe cloud: over UDP port 8899, or over Modbus TCP on port 502 when `transport` is `tcp`. If the search finds nothing or the IP check fails, go through these points:
 
 * The inverter is an ET, EH, BH or BT series device. Other series do not answer this protocol.
 * The WiFi or LAN module of the inverter is connected to your network, and the router shows it with an IP address. Reserve that address in the router so it does not change.
 * ioBroker can reach that address. A WiFi repeater, a guest network, a separate VLAN or a firewall between ioBroker and the inverter blocks the UDP packets.
+* The inverter has the WiFi/LAN dongle 2.0: choose Modbus TCP under "Connection".
 * The search only scans the /24 networks of the ioBroker host. If ioBroker runs in Docker or a VM with its own network, enter the inverter network under "Discovery subnet" (for example `192.168.178.0`) or type the IP address directly and use "Validate inverter IP".
 
 ### Optional register groups
@@ -175,6 +178,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	### **WORK IN PROGRESS**
 -->
 ### **WORK IN PROGRESS**
+- Added Modbus TCP on port 502 as a second, experimental connection for the GoodWe WiFi/LAN dongle 2.0, which does not answer the UDP protocol on port 8899 when it is connected by LAN. Choose it under "Connection" in the basic settings; UDP stays the default. The inverter search uses the selected connection (#59).
 - The depth of discharge (on and off grid) and the battery charge current can be written when inverter control is on. The depth of discharge is written as the SolarGo app shows it; the adapter converts it into the reserve the inverter stores. The depth of discharge is limited to 95 %, the charge current to 100 A.
 - Added the read-only states `Settings.WorkMode` (work mode set in the SolarGo app) and `Settings.LoadControl.*` (load control output), read with `pollSettings` in the slot of the optional groups. Inverters with older firmware may not offer the load control registers.
 - Fixed a rejected register read failing the next request as well: the inverter repeats its rejection about 250 ms later, and the next request took it as its own answer. On an inverter without the EMS registers this could pause the following optional group for an hour.

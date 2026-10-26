@@ -15,6 +15,7 @@ import {
   FormControlLabel,
   FormGroup,
   FormHelperText,
+  MenuItem,
   Paper,
   Snackbar,
   Tab,
@@ -34,7 +35,11 @@ import TuneIcon from "@mui/icons-material/Tune";
 import Grid from "@mui/material/Grid2";
 import React, { useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { clampNumber } from "../../src/lib/config";
+import {
+  clampNumber,
+  normalizeTransport,
+  type Transport,
+} from "../../src/lib/config";
 import de from "../../admin/i18n/de.json";
 import en from "../../admin/i18n/en.json";
 import es from "../../admin/i18n/es.json";
@@ -50,6 +55,7 @@ import "./style.css";
 
 type NativeConfig = {
   ipAddr: string;
+  transport: Transport;
   discoverySubnet: string;
   pollCycle: number;
   timeoutMs: number;
@@ -74,6 +80,7 @@ type DiscoveryInfo = {
 
 type DiscoveryItem = {
   ip: string;
+  transport?: Transport;
   idInfo?: DiscoveryInfo;
 };
 
@@ -97,6 +104,7 @@ type SendCommand = (
 
 const DEFAULT_CONFIG: NativeConfig = {
   ipAddr: "",
+  transport: "udp",
   discoverySubnet: "",
   pollCycle: 10,
   timeoutMs: 5000,
@@ -195,6 +203,8 @@ function t(text: string, ...args: Array<string | number>): string {
 
 const NOT_FOUND_HINT =
   "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.";
+const NOT_FOUND_HINT_TCP =
+  "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.";
 
 function normalizeNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
@@ -219,6 +229,7 @@ function normalizeConfig(settings: Partial<NativeConfig>): NativeConfig {
     ...DEFAULT_CONFIG,
     ...settings,
     ipAddr: String(settings.ipAddr ?? ""),
+    transport: normalizeTransport(settings.transport),
     discoverySubnet: String(settings.discoverySubnet ?? ""),
     pollCycle: clampNumber(
       settings.pollCycle,
@@ -256,6 +267,7 @@ function GoodWeConfig(props: {
   updateConfig: <Key extends keyof NativeConfig>(
     key: Key,
     value: NativeConfig[Key],
+    callback?: () => void,
   ) => void;
 }): React.JSX.Element {
   const [activeTab, setActiveTab] = useState(0);
@@ -283,6 +295,7 @@ function GoodWeConfig(props: {
         "validateIp",
         {
           ip: props.config.ipAddr,
+          transport: props.config.transport,
           timeoutMs: 1000,
         },
         5000,
@@ -292,8 +305,13 @@ function GoodWeConfig(props: {
         showMessage(t("Inverter reachable"), "success");
       } else {
         const reason = response.error || t("Inverter not reachable");
+        const hint =
+          props.config.transport === "tcp"
+            ? NOT_FOUND_HINT_TCP
+            : NOT_FOUND_HINT;
+
         showMessage(
-          `${/[.!?]$/.test(reason) ? reason : `${reason}.`} ${t(NOT_FOUND_HINT)}`,
+          `${/[.!?]$/.test(reason) ? reason : `${reason}.`} ${t(hint)}`,
           "error",
         );
       }
@@ -316,6 +334,7 @@ function GoodWeConfig(props: {
       const response = (await props.sendCommand("discoverInverters", {
         ip: props.config.ipAddr,
         subnet: props.config.discoverySubnet,
+        transport: props.config.transport,
         timeoutMs: 700,
         concurrency: 64,
       })) as DiscoveryResponse;
@@ -335,8 +354,12 @@ function GoodWeConfig(props: {
   }, [props, showMessage]);
 
   const applyIp = useCallback(
-    (ip: string) => {
-      props.updateConfig("ipAddr", ip);
+    (ip: string, transport: Transport) => {
+      // Chained: a second update in the same tick starts from the native
+      // config before the first one and would drop the IP again.
+      props.updateConfig("ipAddr", ip, () =>
+        props.updateConfig("transport", transport),
+      );
       showMessage(t("IP %s applied", ip), "success");
     },
     [props, showMessage],
@@ -410,6 +433,34 @@ function GoodWeConfig(props: {
       {activeTab === 0 ? (
         <Box sx={{ p: 1, py: 2 }}>
           <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                fullWidth
+                helperText={t(
+                  "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.",
+                )}
+                label={t("Connection")}
+                select
+                value={props.config.transport}
+                variant="standard"
+                onChange={(event) =>
+                  props.updateConfig(
+                    "transport",
+                    normalizeTransport(event.target.value),
+                  )
+                }
+              >
+                <MenuItem value="udp">
+                  {t("UDP port 8899 (WiFi dongle)")}
+                </MenuItem>
+                <MenuItem value="tcp">
+                  {t("Modbus TCP port 502 (WiFi/LAN dongle 2.0)")}
+                </MenuItem>
+              </TextField>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid size={{ xs: 12, md: "grow" }}>
               <TextField
                 fullWidth
@@ -466,6 +517,11 @@ function GoodWeConfig(props: {
           {discovery ? (
             <DiscoveryResult
               found={found}
+              hint={
+                props.config.transport === "tcp"
+                  ? NOT_FOUND_HINT_TCP
+                  : NOT_FOUND_HINT
+              }
               searched={searched}
               onApplyIp={applyIp}
             />
@@ -515,7 +571,7 @@ function GoodWeConfig(props: {
             <Grid size={{ xs: 12, md: 4 }}>
               <TextField
                 fullWidth
-                helperText={t("0-5 per UDP request")}
+                helperText={t("0-5 per request")}
                 label={t("Retries")}
                 slotProps={{ htmlInput: { min: 0, max: 5 } }}
                 type="number"
@@ -589,14 +645,15 @@ function GoodWeConfig(props: {
 
 function DiscoveryResult(props: {
   found: DiscoveryItem[];
-  onApplyIp: (ip: string) => void;
+  hint: string;
+  onApplyIp: (ip: string, transport: Transport) => void;
   searched: number;
 }): React.JSX.Element {
   if (props.found.length === 0) {
     return (
       <Alert severity="info" sx={{ mt: 2, mb: 3 }}>
         {t("No inverter found. Searched %s addresses.", props.searched)}{" "}
-        {t(NOT_FOUND_HINT)}
+        {t(props.hint)}
       </Alert>
     );
   }
@@ -624,12 +681,19 @@ function DiscoveryResult(props: {
           {props.found.map((inverter) => (
             <TableRow key={inverter.ip}>
               <TableCell>{inverter.ip}</TableCell>
-              <TableCell>{formatInfo(inverter.idInfo)}</TableCell>
+              <TableCell>
+                {formatInfo(inverter.idInfo, inverter.transport)}
+              </TableCell>
               <TableCell align="right">
                 <Button
                   size="small"
                   variant="contained"
-                  onClick={() => props.onApplyIp(inverter.ip)}
+                  onClick={() =>
+                    props.onApplyIp(
+                      inverter.ip,
+                      normalizeTransport(inverter.transport),
+                    )
+                  }
                 >
                   {t("Use")}
                 </Button>
@@ -642,15 +706,15 @@ function DiscoveryResult(props: {
   );
 }
 
-function formatInfo(info: DiscoveryInfo | undefined): string {
-  if (!info) {
-    return "";
-  }
-
+function formatInfo(
+  info: DiscoveryInfo | undefined,
+  transport: Transport | undefined,
+): string {
   return [
-    info.modelName,
-    info.serialNumber ? `SN ${info.serialNumber}` : "",
-    info.internalVersion,
+    transport === "tcp" ? "Modbus TCP 502" : "UDP 8899",
+    info?.modelName,
+    info?.serialNumber ? `SN ${info.serialNumber}` : "",
+    info?.internalVersion,
   ]
     .filter((part) => part)
     .join(" | ");
@@ -728,8 +792,9 @@ class GoodWeApp extends GenericApp<GenericAppProps, GenericAppState> {
   private updateConfig = <Key extends keyof NativeConfig>(
     key: Key,
     value: NativeConfig[Key],
+    callback?: () => void,
   ): void => {
-    this.updateNativeValue(key, value);
+    this.updateNativeValue(key, value, callback);
   };
 
   private loadConfig = (config: Record<string, unknown>): void => {

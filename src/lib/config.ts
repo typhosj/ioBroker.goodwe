@@ -64,6 +64,23 @@ function clampNumber(
   return Math.min(max, Math.max(min, Math.floor(parsed)));
 }
 
+type Transport = "udp" | "tcp";
+
+// The WiFi dongle answers UDP on 8899, the WiFi/LAN dongle 2.0 Modbus TCP on 502.
+const transportPorts: Record<Transport, number> = { udp: 8899, tcp: 502 };
+
+/**
+ * Reads the stored transport option; anything but "tcp" keeps UDP, which every
+ * config written before the option existed relies on.
+ *
+ * @param value stored config value
+ */
+function normalizeTransport(value: unknown): Transport {
+  return typeof value === "string" && value.trim().toLowerCase() === "tcp"
+    ? "tcp"
+    : "udp";
+}
+
 /**
  * Normalizes every boolean option of a stored native config in place.
  *
@@ -84,4 +101,7 @@ export {
   clampNumber,
   normalizeBoolean,
   normalizeBooleanConfig,
+  normalizeTransport,
+  type Transport,
+  transportPorts,
 };

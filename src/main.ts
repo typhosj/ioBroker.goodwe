@@ -10,7 +10,11 @@ import {
   handleAdapterMessage,
 } from "./api/admin-messages";
 import { GoodWeUdp } from "./GoodWe/GoodWe";
-import { normalizeBooleanConfig } from "./lib/config";
+import {
+  normalizeBooleanConfig,
+  normalizeTransport,
+  transportPorts,
+} from "./lib/config";
 import { applyControlWrite, writableStateIds } from "./lib/control";
 import { errorMessage } from "./lib/errors";
 import {
@@ -73,9 +77,12 @@ class Goodwe extends utils.Adapter {
       return;
     }
 
-    await this.inverter.Connect(this.config.ipAddr, 8899, {
+    const transport = normalizeTransport(this.config.transport);
+
+    await this.inverter.Connect(this.config.ipAddr, transportPorts[transport], {
       timeoutMs: this.config.timeoutMs,
       retries: this.config.retries,
+      transport,
     });
 
     // Only after the first connection attempt: until then the inverter counts

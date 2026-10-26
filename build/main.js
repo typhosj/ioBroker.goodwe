@@ -85,9 +85,11 @@ class Goodwe extends utils.Adapter {
             this.log.error(`Invalid inverter IP address "${this.config.ipAddr}": ${ipValidation.reason}`);
             return;
         }
-        await this.inverter.Connect(this.config.ipAddr, 8899, {
+        const transport = (0, config_1.normalizeTransport)(this.config.transport);
+        await this.inverter.Connect(this.config.ipAddr, config_1.transportPorts[transport], {
             timeoutMs: this.config.timeoutMs,
             retries: this.config.retries,
+            transport,
         });
         // Only after the first connection attempt: until then the inverter counts
         // as offline, and a write to an offline inverter is refused.

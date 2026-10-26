@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.booleanDefaults = void 0;
+exports.transportPorts = exports.booleanDefaults = void 0;
 exports.clampNumber = clampNumber;
 exports.normalizeBoolean = normalizeBoolean;
 exports.normalizeBooleanConfig = normalizeBooleanConfig;
+exports.normalizeTransport = normalizeTransport;
 // Defaults mirror io-package.json "native"; every optional register group needs an entry here.
 const booleanDefaults = {
     pollExtended: true,
@@ -53,6 +54,20 @@ function clampNumber(value, fallback, min, max) {
         return fallback;
     }
     return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
+// The WiFi dongle answers UDP on 8899, the WiFi/LAN dongle 2.0 Modbus TCP on 502.
+const transportPorts = { udp: 8899, tcp: 502 };
+exports.transportPorts = transportPorts;
+/**
+ * Reads the stored transport option; anything but "tcp" keeps UDP, which every
+ * config written before the option existed relies on.
+ *
+ * @param value stored config value
+ */
+function normalizeTransport(value) {
+    return typeof value === "string" && value.trim().toLowerCase() === "tcp"
+        ? "tcp"
+        : "udp";
 }
 /**
  * Normalizes every boolean option of a stored native config in place.

@@ -1,6 +1,6 @@
 import dgram from "node:dgram";
 import { setTimeout as sleep } from "node:timers/promises";
-import { clampNumber } from "../lib/config";
+import { clampNumber, type Transport } from "../lib/config";
 import { errorMessage, ModbusExceptionError } from "../lib/errors";
 import {
   buildIdInfoRequest,
@@ -13,10 +13,29 @@ import {
   type RegisterGroup,
   TYPE,
 } from "../lib/register-map";
+import { crc16, ModbusTcpSocket } from "./modbus-tcp";
 
 interface GoodWeConnectOptions {
   timeoutMs?: number;
   retries?: number;
+  transport?: Transport;
+}
+
+// What the client needs from a dgram socket, so the Modbus TCP link can stand
+// in for it.
+interface FrameSocket {
+  send(
+    msg: Uint8Array,
+    offset: number,
+    length: number,
+    port: number,
+    address: string,
+    callback: (error: Error | null) => void,
+  ): void;
+  on(event: "message", listener: (msg: Buffer) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  removeAllListeners(): unknown;
+  close(): void;
 }
 
 interface ReadGroupOptions {
@@ -208,15 +227,18 @@ export class GoodWeUdp {
   #status = GoodWeUdp.ConStatus.Offline;
   #ipAddr = "";
   #port = 0;
-  #client: dgram.Socket;
+  #transport: Transport = "udp";
+  #client: FrameSocket;
   #pendingRequests: PendingRequest[] = [];
   #optionalGroupBackoffUntil = new Map<string, number>();
   #timeoutMs = GoodWeUdp.DefaultTimeoutMs;
   #retries = GoodWeUdp.DefaultRetries;
   #closed = false;
-  // Serializes every UDP request. The protocol has no transaction id, so two
+  // Serializes every request. The UDP protocol has no transaction id, so two
   // requests in flight at once can only be told apart by function code and
   // payload length - and a timeout of one rebinds the socket of the other.
+  // Modbus TCP sends one at a time as well, its socket matches only the
+  // answer to the last request.
   #queue: Promise<unknown> = Promise.resolve();
   #deviceInfo = new GoodWeDeviceInfo();
   #runningData = new GoodWeRunningData();
@@ -239,14 +261,20 @@ export class GoodWeUdp {
   /**
    * @param logHost object exposing the logger, usually the adapter instance
    * @param logHost.log adapter logger, may be assigned after construction
+   * @param transport initial transport; Connect() switches it when the
+   *   adapter only learns it from the config later
    */
-  constructor(logHost: { log: ioBroker.Logger }) {
+  constructor(logHost: { log: ioBroker.Logger }, transport: Transport = "udp") {
     this.#logHost = logHost;
+    this.#transport = transport;
     this.#client = this.#createSocket();
   }
 
-  #createSocket(): dgram.Socket {
-    const client = dgram.createSocket("udp4");
+  #createSocket(): FrameSocket {
+    const client: FrameSocket =
+      this.#transport === "tcp"
+        ? new ModbusTcpSocket()
+        : dgram.createSocket("udp4");
 
     client.on("message", (rcvbuf) => this.#handleMessage(rcvbuf));
     client.on("error", (error) => {
@@ -316,6 +344,13 @@ export class GoodWeUdp {
       5,
     );
 
+    const transport = options.transport ?? "udp";
+
+    if (transport !== this.#transport) {
+      this.#transport = transport;
+      this.#resetSocket();
+    }
+
     return this.ReadIdInfo();
   }
 
@@ -330,7 +365,7 @@ export class GoodWeUdp {
       // arrive 1255 ms after a RunningData request and are the only lead on
       // whether this is a rejected answer or foreign traffic on the port.
       this.log.debug?.(
-        `Ignoring unmatched UDP frame (${rcvbuf.length} bytes, pending: ${this.#pendingRequests.map((request) => request.name).join(",") || "none"}): ${rcvbuf.subarray(0, 16).toString("hex")}`,
+        `Ignoring unmatched frame (${rcvbuf.length} bytes, pending: ${this.#pendingRequests.map((request) => request.name).join(",") || "none"}): ${rcvbuf.subarray(0, 16).toString("hex")}`,
       );
       return;
     }
@@ -428,7 +463,12 @@ export class GoodWeUdp {
             if (requestIndex !== -1) {
               this.#pendingRequests.splice(requestIndex, 1);
             }
-            this.#resetSocket();
+            // Modbus TCP keeps its connection: the transaction id already
+            // keeps a late answer away from the next request, and the dongle
+            // 2.0 has only a few client slots to spend on reconnects.
+            if (this.#transport === "udp") {
+              this.#resetSocket();
+            }
             reject(new Error(`${name} timed out after ${this.#timeoutMs} ms`));
           }, this.#timeoutMs);
 
@@ -445,9 +485,7 @@ export class GoodWeUdp {
             reject(
               error instanceof Error
                 ? error
-                : new Error(
-                    typeof error === "string" ? error : "UDP send failed",
-                  ),
+                : new Error(typeof error === "string" ? error : "Send failed"),
             );
           });
         });
@@ -463,7 +501,10 @@ export class GoodWeUdp {
           this.#status = GoodWeUdp.ConStatus.Online;
           // Holds the queue, so the repeated rejection arrives while nothing
           // is pending and is dropped instead of failing the next request.
-          await sleep(GoodWeUdp.ExceptionSettleMs, undefined, { ref: false });
+          // Over Modbus TCP the repetition carries the old transaction id.
+          if (this.#transport === "udp") {
+            await sleep(GoodWeUdp.ExceptionSettleMs, undefined, { ref: false });
+          }
           throw error;
         }
 
@@ -476,6 +517,12 @@ export class GoodWeUdp {
     // Offline only once every attempt is lost. A lost answer the retry recovers
     // is no outage, and a control write arriving meanwhile would be refused.
     this.#status = GoodWeUdp.ConStatus.Offline;
+
+    // A connection that lost every answer may be half open, for example after
+    // the dongle rebooted; the next request connects again.
+    if (this.#transport === "tcp") {
+      this.#resetSocket();
+    }
     throw lastError;
   }
 
@@ -489,7 +536,7 @@ export class GoodWeUdp {
     sendbuf[4] = count >> 8;
     sendbuf[5] = count & 0x00ff;
 
-    const crc = this.#CalculatetCrc16(sendbuf, 0, 6);
+    const crc = crc16(sendbuf, 0, 6);
     sendbuf[6] = crc >> 8;
     sendbuf[7] = crc & 0x00ff;
 
@@ -643,7 +690,7 @@ export class GoodWeUdp {
     sendbuf[4] = value >> 8;
     sendbuf[5] = value & 0x00ff;
 
-    const crc = this.#CalculatetCrc16(sendbuf, 0, 6);
+    const crc = crc16(sendbuf, 0, 6);
     sendbuf[6] = crc >> 8;
     sendbuf[7] = crc & 0x00ff;
 
@@ -687,11 +734,24 @@ export class GoodWeUdp {
     const wasOnline = this.#status === GoodWeUdp.ConStatus.Online;
 
     try {
-      await this.#request(
-        buildIdInfoRequest(),
-        (data) => isGoodWeIdInfoResponse(data),
-        "ReadIdInfo",
-      );
+      if (this.#transport === "tcp") {
+        // The AA55 ID request is no Modbus frame, so the dongle 2.0 gets a
+        // one register read of the device info block instead.
+        const sendbuf = this.#buildReadRegisterRequest(35000, 1);
+
+        await this.#request(
+          sendbuf,
+          (data) => this.#CheckRecRegisterData(data, sendbuf[1], 1),
+          "ReadIdInfo",
+          (data) => this.#ExceptionCode(data, sendbuf[1]),
+        );
+      } else {
+        await this.#request(
+          buildIdInfoRequest(),
+          (data) => isGoodWeIdInfoResponse(data),
+          "ReadIdInfo",
+        );
+      }
 
       // Back after a connection loss: a group whose read failed while the
       // inverter was gone is not unsupported and must not stay paused.
@@ -734,7 +794,7 @@ export class GoodWeUdp {
       return null;
     }
 
-    const crc = this.#CalculatetCrc16(
+    const crc = crc16(
       Data,
       2,
       GoodWeRegister.ExceptionResponse.Length - GoodWeRegister.Format.CRC16 - 2,
@@ -765,7 +825,7 @@ export class GoodWeUdp {
       return false;
     }
 
-    const crc = this.#CalculatetCrc16(
+    const crc = crc16(
       Data,
       2,
       GoodWeRegister.WriteResponse.Length - GoodWeRegister.Format.CRC16 - 2,
@@ -809,11 +869,7 @@ export class GoodWeUdp {
       frameLength,
     );
 
-    const crc = this.#CalculatetCrc16(
-      Data,
-      2,
-      frameLength - GoodWeRegister.Format.CRC16 - 2,
-    );
+    const crc = crc16(Data, 2, frameLength - GoodWeRegister.Format.CRC16 - 2);
 
     if (registerCrc[0] == crc >> 8 && registerCrc[1] == (crc & 0x00ff)) {
       if (
@@ -868,29 +924,6 @@ export class GoodWeUdp {
     Length: number,
   ): number {
     return Buffer.from(Data.slice(Start, Start + Length)).readFloatBE(0);
-  }
-
-  #CalculatetCrc16(Data: Uint8Array, Start: number, Length: number): number {
-    let pos;
-    let i;
-    let crc = 0xffff;
-
-    for (pos = Start; pos < Start + Length; pos++) {
-      crc ^= Data[pos];
-
-      for (i = 8; i != 0; i--) {
-        if ((crc & 0x0001) != 0) {
-          crc >>= 1;
-          crc ^= 0xa001;
-        } else {
-          crc >>= 1;
-        }
-      }
-    }
-
-    const ret = ((crc & 0x00ff) << 8) + ((crc & 0xff00) >> 8);
-
-    return ret;
   }
 
   get Status(): boolean {

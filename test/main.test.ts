@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import EventEmitter from "node:events";
+import net from "node:net";
 import proxyquire from "proxyquire";
 import {
   clampPollCycle,
@@ -30,6 +31,7 @@ import {
   booleanDefaults,
   normalizeBoolean,
   normalizeBooleanConfig,
+  normalizeTransport,
 } from "../src/lib/config";
 import {
   buildIdInfoRequest,
@@ -45,6 +47,8 @@ import {
   getDecodedBmsStatuses,
   getDecodedRunningStatuses,
 } from "../src/mappers/status-mapper";
+import { probeModbusTcp } from "../src/api/admin-messages";
+import type * as AdminMessages from "../src/api/admin-messages";
 import type { GoodWeUdp } from "../src/GoodWe/GoodWe";
 import type * as DiscoveryTypes from "../src/lib/goodwe-discovery";
 
@@ -75,6 +79,7 @@ const testLogger = {
 
 const testConfig: ioBroker.AdapterConfig = {
   ipAddr: "192.168.178.42",
+  transport: "udp",
   discoverySubnet: "192.168.178.0/24",
   pollCycle: 10,
   timeoutMs: 5000,
@@ -292,6 +297,48 @@ describe("GoodWe discovery helpers", () => {
     assert.equal(candidates[0], "192.168.178.1");
     assert.equal(candidates[253], "192.168.178.254");
     assert.deepEqual(getIpv4CandidatesFromSubnet("192.168.178.0/16"), []);
+  });
+
+  it("scans the configured network first and at most four networks", () => {
+    const debug: string[] = [];
+    const nic = (address: string, internal = false): object => ({
+      address,
+      family: "IPv4",
+      internal,
+    });
+    const { getDiscoveryCandidates } = proxyquire(
+      "../src/lib/goodwe-discovery",
+      {
+        "node:os": {
+          networkInterfaces: () => ({
+            // Windows lists Hyper-V and WSL adapters before the LAN.
+            hyperv: [nic("172.20.1.1"), nic("172.21.1.1")],
+            wsl: [nic("172.22.1.1"), nic("172.23.1.1")],
+            lan: [nic("192.168.1.10"), { address: "fe80::1", family: "IPv6" }],
+            loopback: [nic("127.0.0.1", true)],
+          }),
+        },
+      },
+    ) as typeof DiscoveryTypes;
+
+    const candidates = getDiscoveryCandidates({
+      ip: "192.168.178.42",
+      log: { debug: (message: string) => debug.push(message) },
+    });
+    const networks = [
+      ...new Set(candidates.map((ip) => ip.replace(/\.\d+$/, ""))),
+    ];
+
+    assert.deepEqual(networks, [
+      "192.168.178",
+      "172.20.1",
+      "172.21.1",
+      "172.22.1",
+    ]);
+    assert.equal(candidates.length, 4 * 254);
+    assert.deepEqual(debug, [
+      "Discovery scans 192.168.178.0/24, 172.20.1.0/24, 172.21.1.0/24, 172.22.1.0/24 and skips 172.23.1.0/24, 192.168.1.0/24",
+    ]);
   });
 
   it("clamps discovery concurrency values", () => {
@@ -552,6 +599,95 @@ describe("GoodWe UDP parser", () => {
 });
 
 describe("state mapping", () => {
+  async function deletedOnStart(
+    config: Partial<ioBroker.AdapterConfig>,
+  ): Promise<string[]> {
+    const deleted: string[] = [];
+    const adapter: StateAdapterLike = {
+      config: { ...testConfig, ...config },
+      log: testLogger,
+      setObjectNotExistsAsync: () => Promise.resolve(undefined),
+      extendObjectAsync: () => Promise.resolve(undefined),
+      // Every object of an older start still exists.
+      getObjectAsync: (id: string) =>
+        Promise.resolve({ _id: id, type: "state" } as ioBroker.Object),
+      delObjectAsync: (id: string) => {
+        deleted.push(id);
+        return Promise.resolve(undefined);
+      },
+      setStateChangedAsync: () => Promise.resolve(undefined),
+    };
+
+    await new GoodWeStateManager(
+      adapter,
+      {} as unknown as GoodWeUdp,
+    ).CleanupDisabledOptionalStates();
+
+    return deleted;
+  }
+
+  it("removes the work mode and load control states with pollSettings off", async () => {
+    const deleted = await deletedOnStart({
+      pollSettings: false,
+      enableControl: true,
+    });
+
+    for (const id of [
+      "Settings.WorkMode",
+      "Settings.LoadControl.Mode",
+      "Settings.LoadControl.Switch",
+      "Settings.LoadControl.Soc",
+      "Settings.LoadControl",
+    ]) {
+      assert.ok(deleted.includes(id), `${id} not deleted`);
+    }
+
+    // Inverter control still reads and writes the battery and EMS settings.
+    for (const id of [
+      "Settings",
+      "Settings.Battery",
+      "Settings.Battery.DischargeDepth",
+      "Settings.EmsMode",
+    ]) {
+      assert.equal(deleted.includes(id), false, `${id} deleted`);
+    }
+
+    // Deepest first: a channel goes only after the channels below it.
+    assert.ok(
+      deleted.indexOf("Settings.LoadControl") >
+        deleted.indexOf("Settings.LoadControl.Soc"),
+    );
+  });
+
+  it("removes the whole settings channel with pollSettings and control off", async () => {
+    const deleted = await deletedOnStart({
+      pollSettings: false,
+      enableControl: false,
+    });
+
+    for (const id of [
+      "Settings.Battery.DischargeDepth",
+      "Settings.EmsMode",
+      "Settings.WorkMode",
+      "Settings.Battery",
+      "Settings",
+    ]) {
+      assert.ok(deleted.includes(id), `${id} not deleted`);
+    }
+    assert.ok(
+      deleted.indexOf("Settings") > deleted.indexOf("Settings.Battery"),
+    );
+  });
+
+  it("keeps every settings state with pollSettings on", async () => {
+    const deleted = await deletedOnStart({ pollSettings: true });
+
+    assert.deepEqual(
+      deleted.filter((id) => id.startsWith("Settings")),
+      [],
+    );
+  });
+
   it("creates numeric mode states with enum labels", async () => {
     const objects: ObjectWrite[] = [];
     const adapter: StateAdapterLike = {
@@ -945,6 +1081,21 @@ describe("status mapping", () => {
       },
     );
   });
+
+  it("decodes only the BMS alarms without the extended BMS data", () => {
+    // Before the first BMS read the codes are not there yet.
+    assert.deepEqual(getDecodedBmsStatuses({}, false), [
+      { id: "BMSInfo.ErrorCodeActive", value: "" },
+    ]);
+    assert.deepEqual(
+      getDecodedBmsStatuses({ ErrorCodeH: 1 }, true).map((state) => state.id),
+      [
+        "BMSInfo.ErrorCodeActive",
+        "BMSInfo.WarningCodeActive",
+        "BMSInfo.DRMStatusActive",
+      ],
+    );
+  });
 });
 
 describe("poll scheduler", () => {
@@ -993,6 +1144,34 @@ describe("poll scheduler", () => {
     await Promise.resolve();
     assert.equal(pollCount, 1);
   });
+
+  it("keeps polling after a poll threw", async () => {
+    const warnings: string[] = [];
+    let scheduled = 0;
+    const scheduler = new PollScheduler(
+      {
+        config: testConfig,
+        log: {
+          ...testLogger,
+          warn: (message: string) => warnings.push(message),
+        },
+        setTimeout: () => {
+          scheduled++;
+          return 1 as ioBroker.Timeout;
+        },
+        clearTimeout: noop,
+      },
+      () => Promise.reject(new Error("boom")),
+      1000,
+    );
+
+    scheduler.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    scheduler.stop();
+
+    assert.deepEqual(warnings, ["poll scheduler failed: boom"]);
+    assert.equal(scheduled, 1);
+  });
 });
 
 describe("poll traffic", () => {
@@ -1011,11 +1190,15 @@ describe("poll traffic", () => {
     > = {},
     answered: (groupName: string) => boolean = () => true,
   ): {
+    connection: boolean[];
     readOptions: Map<string, unknown>;
     reads: string[];
     scheduler: GoodWePollScheduler;
     setStatus: (online: boolean) => void;
+    warnings: string[];
   } {
+    const connection: boolean[] = [];
+    const warnings: string[] = [];
     const reads: string[] = [];
     const readOptions = new Map<string, unknown>();
     let online = true;
@@ -1037,19 +1220,27 @@ describe("poll traffic", () => {
       IsControlWritePending: () => false,
       UpdateStatesFromRegisterMap: () => Promise.resolve(undefined),
       ...overrides,
-      SetConnection: () => Promise.resolve(undefined),
+      SetConnection: (value: boolean) => {
+        connection.push(value);
+        return Promise.resolve(undefined);
+      },
       UpdateDecodedRunningStatuses: () => Promise.resolve(undefined),
       UpdateDecodedBmsStatuses: () => Promise.resolve(undefined),
       UpdateDerivedRunningStates: () => Promise.resolve(undefined),
     } as unknown as GoodWeStateManager;
 
     return {
+      connection,
       readOptions,
       reads,
+      warnings,
       scheduler: new GoodWePollScheduler(
         {
           config,
-          log: testLogger,
+          log: {
+            ...testLogger,
+            warn: (message: string) => warnings.push(message),
+          },
           setTimeout: () => 1 as ioBroker.Timeout,
           clearTimeout: noop,
         },
@@ -1252,6 +1443,67 @@ describe("poll traffic", () => {
       "runningData",
       "extComData",
     ]);
+  });
+
+  for (const lost of ["deviceInfo", "bmsInfo", "runningData", "extComData"]) {
+    it(`reports the connection lost when ${lost} gets no answer`, async () => {
+      const updated: string[] = [];
+      const harness = createPollScheduler(
+        testConfig,
+        {
+          UpdateStatesFromRegisterMap: (group: RegisterGroup) => {
+            updated.push(group.name);
+            return Promise.resolve(undefined);
+          },
+        },
+        (groupName) => groupName !== lost,
+      );
+
+      await harness.scheduler.Poll();
+
+      assert.equal(harness.connection.includes(false), true);
+      // The states keep the last value the inverter sent.
+      assert.equal(updated.includes(registerGroups[lost].name), false);
+    });
+  }
+
+  it("reads the device info again after it got no answer", async () => {
+    let answerDeviceInfo = false;
+    const harness = createPollScheduler(
+      { ...testConfig, pollCycle: 2 },
+      {},
+      (groupName) => groupName !== "deviceInfo" || answerDeviceInfo,
+    );
+
+    await harness.scheduler.Poll();
+    answerDeviceInfo = true;
+    // One idle tick, then the next cycle.
+    await harness.scheduler.Poll();
+    await harness.scheduler.Poll();
+    await harness.scheduler.Poll();
+    await harness.scheduler.Poll();
+
+    assert.equal(
+      harness.reads.filter((groupName) => groupName === "deviceInfo").length,
+      2,
+    );
+  });
+
+  it("takes the connection down when a cycle throws", async () => {
+    const harness = createPollScheduler(testConfig, {
+      UpdateStatesFromRegisterMap: () =>
+        Promise.reject(new Error("object database gone")),
+    });
+
+    await harness.scheduler.Poll();
+
+    assert.deepEqual(harness.connection.slice(-1), [false]);
+    assert.ok(
+      harness.warnings.some((message) =>
+        message.includes("poll cycle failed: object database gone"),
+      ),
+      harness.warnings.join("\n"),
+    );
   });
 
   it("does not report the old control values while a write runs", async () => {
@@ -2214,6 +2466,17 @@ describe("request serialization", () => {
 });
 
 describe("runtime config normalization", () => {
+  it("keeps UDP unless the transport is set to tcp", () => {
+    assert.equal(normalizeTransport("tcp"), "tcp");
+    assert.equal(normalizeTransport(" TCP "), "tcp");
+    assert.equal(normalizeTransport("udp"), "udp");
+    // Configs from before the option and hand edits must stay on UDP.
+    assert.equal(normalizeTransport(undefined), "udp");
+    assert.equal(normalizeTransport(""), "udp");
+    assert.equal(normalizeTransport("modbus"), "udp");
+    assert.equal(normalizeTransport(502), "udp");
+  });
+
   it("normalizes boolean options from booleans, strings and numbers", () => {
     assert.equal(normalizeBoolean(true, false), true);
     assert.equal(normalizeBoolean(false, true), false);
@@ -2464,6 +2727,78 @@ describe("UDP frame safety", () => {
     assert.equal(await inverter.ReadGroup("settingsEms", options), true);
   });
 
+  it("pauses an optional group after a failed read", async function () {
+    this.timeout(10000);
+
+    const socket = new ScriptedSocket([
+      buildIdInfoResponse(),
+      null,
+      buildRegisterResponse(registerGroups.flashInfo, () => {}),
+    ]);
+    const inverter = createInverter(socket);
+    let sent = 0;
+    const send = socket.send.bind(socket);
+
+    socket.send = (...args: Parameters<ScriptedSocket["send"]>) => {
+      sent++;
+      send(...args);
+    };
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(
+      await inverter.ReadGroup("flashInfo", { optional: true }),
+      false,
+    );
+    assert.equal(sent, 2);
+    // Paused for an hour: no request, although the inverter would answer now.
+    assert.equal(
+      await inverter.ReadGroup("flashInfo", { optional: true }),
+      false,
+    );
+    assert.equal(sent, 2);
+    // The connection stays online, only the group sleeps.
+    assert.equal(inverter.Status, true);
+    assert.equal(await inverter.ReadGroup("flashInfo"), true);
+  });
+
+  it("warns once when the inverter stops answering", async function () {
+    this.timeout(10000);
+
+    const warnings: string[] = [];
+    const socket = new ScriptedSocket([buildIdInfoResponse(), null]);
+    const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {
+      "node:dgram": { createSocket: () => socket },
+    }) as { GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp };
+    const inverter = new GoodWeUdp({
+      log: {
+        ...testLogger,
+        warn: (message: string) => warnings.push(message),
+      },
+    });
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(await inverter.ReadIdInfo(), false);
+    assert.equal(await inverter.ReadIdInfo(), false);
+
+    // The scheduler keeps probing while the inverter is gone; only the
+    // transition is worth a warning.
+    assert.deepEqual(warnings, [
+      "ReadIdInfo: ReadIdInfo timed out after 1000 ms",
+    ]);
+  });
+
   it("reads a paused optional group again after a reconnect", async function () {
     this.timeout(10000);
 
@@ -2600,6 +2935,533 @@ describe("BMS status high words", () => {
   });
 });
 
+describe("Modbus TCP transport", () => {
+  const servers: FakeModbusTcpServer[] = [];
+  const tcp = { timeoutMs: 1000, transport: "tcp" as const };
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  async function startServer(
+    answer: (request: Buffer, socket: net.Socket) => void,
+  ): Promise<FakeModbusTcpServer> {
+    const server = await FakeModbusTcpServer.start(answer);
+
+    servers.push(server);
+
+    return server;
+  }
+
+  it("reads register groups as Modbus TCP requests", async function () {
+    this.timeout(10000);
+
+    const server = await startServer((request, socket) => {
+      socket.write(
+        request.readUInt16BE(8) === 35000
+          ? toModbusTcpAnswer(request, buildReadAnswer(1))
+          : toModbusTcpAnswer(
+              request,
+              buildRegisterResponse(registerGroups.runningData, (response) => {
+                response.writeInt16BE(-230, 5 + (35140 - 35100) * 2);
+                response.writeUInt16BE(2315, 5 + (35121 - 35100) * 2);
+              }),
+            ),
+      );
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 0 }),
+      true,
+    );
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(inverter.RunningData.AcActivePower, -230);
+    assert.equal(inverter.RunningData.GridL1.Voltage, 231.5);
+    inverter.destructor();
+
+    // MBAP header with a counting transaction id, protocol 0 and the length of
+    // unit id plus PDU, then the RTU frame without its CRC.
+    assert.equal(
+      server.requests[0].toString("hex"),
+      "000100000006f70388b80001",
+    );
+    assert.equal(server.requests[1].readUInt16BE(0), 2);
+    assert.equal(server.requests[1].readUInt16BE(8), 35100);
+    assert.equal(
+      server.requests[1].readUInt16BE(10),
+      registerGroups.runningData.count,
+    );
+    assert.equal(server.connections, 1);
+  });
+
+  it("joins an answer split across segments and skips a stale one", async function () {
+    this.timeout(10000);
+
+    const server = await startServer((request, socket) => {
+      const answer = toModbusTcpAnswer(request, buildReadAnswer(1));
+      // A rejection: taken for the answer, it would fail the request.
+      const stale = toModbusTcpAnswer(request, buildExceptionResponse(0x03, 2));
+
+      stale.writeUInt16BE(request.readUInt16BE(0) - 1, 0);
+      socket.write(Buffer.concat([stale, answer.subarray(0, 4)]));
+      globalThis.setTimeout(() => socket.write(answer.subarray(4)), 50);
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 0 }),
+      true,
+    );
+    inverter.destructor();
+  });
+
+  it("fails a rejected write at once", async function () {
+    this.timeout(10000);
+
+    const server = await startServer((request, socket) => {
+      const functionCode = request[7];
+
+      socket.write(
+        toModbusTcpAnswer(
+          request,
+          functionCode === 0x03
+            ? buildReadAnswer(1)
+            : buildExceptionResponse(functionCode, 2),
+        ),
+      );
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 3 }),
+      true,
+    );
+
+    const started = Date.now();
+
+    assert.equal(await inverter.WriteRegister(47511, 4), false);
+    // Neither a timeout nor the 600 ms the UDP dongle needs to repeat its
+    // rejection: over Modbus TCP the repetition has the old transaction id.
+    assert.ok(Date.now() - started < 300, "a rejection must not wait");
+    assert.equal(inverter.Status, true);
+    inverter.destructor();
+  });
+
+  it("keeps the connection when an answer is lost", async function () {
+    this.timeout(10000);
+
+    let requests = 0;
+    const server = await startServer((request, socket) => {
+      // The answer to the first request never arrives.
+      if (requests++ > 0) {
+        socket.write(toModbusTcpAnswer(request, buildReadAnswer(1)));
+      }
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 1 }),
+      true,
+    );
+    // The dongle 2.0 has few client slots; a reconnect per lost answer could
+    // use them up.
+    assert.equal(server.connections, 1);
+    inverter.destructor();
+  });
+
+  it("connects again once every attempt is lost", async function () {
+    this.timeout(10000);
+
+    let firstConnection: net.Socket | undefined;
+    const server = await startServer((request, socket) => {
+      firstConnection ??= socket;
+
+      // A half open connection: the dongle rebooted and forgot it.
+      if (socket !== firstConnection) {
+        socket.write(toModbusTcpAnswer(request, buildReadAnswer(1)));
+      }
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 1 }),
+      false,
+    );
+    assert.equal(server.connections, 1);
+    assert.equal(await inverter.ReadIdInfo(), true);
+    assert.equal(server.connections, 2);
+    inverter.destructor();
+  });
+
+  it("connects again after the dongle closed the connection", async function () {
+    this.timeout(10000);
+
+    const server = await startServer((request, socket) => {
+      socket.end(toModbusTcpAnswer(request, buildReadAnswer(1)));
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 0 }),
+      true,
+    );
+    // Let the client see the close before it sends again.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+    assert.equal(await inverter.ReadIdInfo(), true);
+    assert.equal(server.connections, 2);
+    inverter.destructor();
+  });
+
+  // 0 and 1 cannot hold unit id and function code, 255 is one byte more than
+  // the largest Modbus frame, 0xffff would wait for 64 KiB that never come.
+  for (const length of [0, 1, 255, 0xffff]) {
+    it(`connects again after an answer with length field ${length}`, async function () {
+      this.timeout(10000);
+
+      let answered = 0;
+      const server = await startServer((request, socket) => {
+        const answer = toModbusTcpAnswer(request, buildReadAnswer(1));
+
+        if (answered++ === 0) {
+          answer.writeUInt16BE(length, 4);
+        }
+
+        socket.write(answer);
+      });
+      const inverter = createTcpInverter();
+
+      assert.equal(
+        await inverter.Connect("127.0.0.1", server.port, {
+          ...tcp,
+          retries: 1,
+        }),
+        true,
+      );
+      assert.equal(server.connections, 2);
+      inverter.destructor();
+    });
+  }
+
+  it("accepts an answer of the largest Modbus frame", async function () {
+    this.timeout(10000);
+
+    // 125 registers: unit id, function code, byte count and 250 data bytes,
+    // the 254 the length field may hold at most.
+    const server = await startServer((request, socket) => {
+      socket.write(
+        toModbusTcpAnswer(request, buildReadAnswer(request.readUInt16BE(10))),
+      );
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 0 }),
+      true,
+    );
+    assert.equal(registerGroups.runningData.count, 125);
+    assert.equal(await inverter.ReadGroup("runningData"), true);
+    assert.equal(server.connections, 1);
+    inverter.destructor();
+  });
+
+  it("names the cause when the connection is refused", async function () {
+    this.timeout(10000);
+
+    const server = await startServer(() => {});
+    const port = server.port;
+
+    await server.close();
+
+    const messages: string[] = [];
+    const inverter = createTcpInverter({
+      ...testLogger,
+      debug: (message: string) => messages.push(message),
+    });
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", port, { ...tcp, retries: 0 }),
+      false,
+    );
+    assert.equal(inverter.Status, false);
+    assert.ok(
+      messages.some((message) => message.includes("ECONNREFUSED")),
+      messages.join("\n"),
+    );
+  });
+
+  it("sends nothing after the unload", async function () {
+    this.timeout(10000);
+
+    const server = await startServer((request, socket) => {
+      socket.write(toModbusTcpAnswer(request, buildReadAnswer(1)));
+    });
+    const inverter = createTcpInverter();
+
+    assert.equal(
+      await inverter.Connect("127.0.0.1", server.port, { ...tcp, retries: 0 }),
+      true,
+    );
+    inverter.destructor();
+    assert.equal(await inverter.ReadIdInfo(), false);
+    assert.equal(server.requests.length, 1);
+  });
+});
+
+describe("Modbus TCP discovery", () => {
+  const servers: FakeModbusTcpServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  async function probeServer(
+    answer: (request: Buffer) => Buffer,
+  ): Promise<DiscoveryTypes.ProbeResult> {
+    const server = await FakeModbusTcpServer.start((request, socket) =>
+      socket.write(toModbusTcpAnswer(request, answer(request))),
+    );
+
+    servers.push(server);
+
+    return probeModbusTcp({ log: testLogger }, "127.0.0.1", 1000, server.port);
+  }
+
+  it("reads model and serial number of a GoodWe inverter", async function () {
+    this.timeout(10000);
+
+    const result = await probeServer((request) =>
+      request.readUInt16BE(10) === 1
+        ? buildReadAnswer(1)
+        : buildRegisterResponse(registerGroups.deviceInfo, (response) => {
+            writeAscii(response, 5 + 3 * 2, 16, "5010KETU229W0123");
+            writeAscii(response, 5 + 11 * 2, 10, "GW8KN-ET");
+          }),
+    );
+
+    assert.deepEqual(result, {
+      ip: "127.0.0.1",
+      reachable: true,
+      transport: "tcp",
+      idInfo: {
+        modelName: "GW8KN-ET",
+        serialNumber: "5010KETU229W0123",
+        internalVersion: "",
+      },
+    });
+  });
+
+  it("skips a Modbus device that rejects the GoodWe registers", async function () {
+    this.timeout(10000);
+
+    const result = await probeServer(() => buildExceptionResponse(0x03, 2));
+
+    assert.equal(result.reachable, false);
+  });
+
+  it("skips a Modbus device without a serial number in 35003", async function () {
+    this.timeout(10000);
+
+    const result = await probeServer((request) =>
+      request.readUInt16BE(10) === 1
+        ? buildReadAnswer(1)
+        : buildRegisterResponse(registerGroups.deviceInfo, (response) => {
+            // Control bytes are no serial number either.
+            response.fill(0x01, 5 + 3 * 2, 5 + 11 * 2);
+          }),
+    );
+
+    assert.equal(result.reachable, false);
+    assert.match(result.error ?? "", /no GoodWe inverter/);
+  });
+
+  function loadDiscovery(answerUdp: boolean): {
+    discovery: typeof DiscoveryTypes;
+    udpSockets: () => number;
+  } {
+    let udpSockets = 0;
+    const discovery = proxyquire("../src/lib/goodwe-discovery", {
+      "node:dgram": {
+        createSocket: () => {
+          udpSockets++;
+          return new IdInfoSocket(answerUdp);
+        },
+      },
+    }) as typeof DiscoveryTypes;
+
+    return { discovery, udpSockets: () => udpSockets };
+  }
+
+  it("searches only with the probe of the selected connection", async () => {
+    const { discovery, udpSockets } = loadDiscovery(true);
+    const result = await discovery.discoverGoodWeInverters({
+      subnet: "192.168.178.0/24",
+      timeoutMs: 100,
+      concurrency: 254,
+      probe: (ip) =>
+        Promise.resolve(
+          ip === "192.168.178.42"
+            ? { ip, reachable: true, transport: "tcp" }
+            : { ip, reachable: false },
+        ),
+    });
+
+    assert.equal(result.searched, 254);
+    assert.deepEqual(result.found, [
+      { ip: "192.168.178.42", reachable: true, transport: "tcp" },
+    ]);
+    // The UDP probe would list a dongle answering both protocols a second time.
+    assert.equal(udpSockets(), 0);
+  });
+
+  it("searches over UDP without a probe", async () => {
+    const { discovery } = loadDiscovery(true);
+    const result = await discovery.discoverGoodWeInverters({
+      subnet: "192.168.178.0/24",
+      timeoutMs: 100,
+      concurrency: 254,
+    });
+
+    assert.equal(result.found.length, 254);
+    assert.equal(result.found[0].transport, "udp");
+    assert.equal(result.found[0].idInfo?.modelName, "GW10K-ET");
+  });
+
+  it("reports an address without UDP answer as unreachable", async () => {
+    const { discovery } = loadDiscovery(false);
+    const result = await discovery.probeGoodWeInverter("192.168.178.42", {
+      timeoutMs: 100,
+    });
+
+    assert.deepEqual(result, {
+      ip: "192.168.178.42",
+      reachable: false,
+      error: "No GoodWe response within 100 ms",
+    });
+  });
+});
+
+describe("admin messages", () => {
+  // Records which probe runs; neither one reaches the network.
+  function loadAdminMessages(): {
+    handleAdapterMessage: typeof AdminMessages.handleAdapterMessage;
+    probes: string[];
+  } {
+    const probes: string[] = [];
+    const { handleAdapterMessage } = proxyquire("../src/api/admin-messages", {
+      "../GoodWe/GoodWe": {
+        GoodWeUdp: class {
+          Connect(ip: string, port: number): Promise<boolean> {
+            probes.push(`tcp ${ip}:${port}`);
+            return Promise.resolve(false);
+          }
+
+          destructor(): void {}
+        },
+      },
+      "../lib/goodwe-discovery": {
+        probeGoodWeInverter: (ip: string) => {
+          probes.push(`udp ${ip}`);
+          return Promise.resolve({ ip, reachable: false });
+        },
+        discoverGoodWeInverters: async (
+          options: DiscoveryTypes.DiscoveryOptions,
+        ) => {
+          await options.probe?.("192.168.178.7", 700);
+          return { searched: 1, found: [] };
+        },
+      },
+    }) as typeof AdminMessages;
+
+    return { handleAdapterMessage, probes };
+  }
+
+  async function send(
+    command: string,
+    message: Record<string, unknown>,
+    config: Partial<ioBroker.AdapterConfig>,
+  ): Promise<{ probes: string[]; response: Record<string, unknown> }> {
+    const { handleAdapterMessage, probes } = loadAdminMessages();
+    const responses: Record<string, unknown>[] = [];
+
+    await handleAdapterMessage(
+      {
+        config: { ...testConfig, ...config },
+        log: testLogger,
+        sendTo: (_instance, _command, payload) => responses.push(payload),
+      },
+      {
+        command,
+        message,
+        from: "system.adapter.admin.0",
+        callback: { message: {}, id: 1, ack: false, time: 0 },
+      } as unknown as ioBroker.Message,
+    );
+
+    return { probes, response: responses[0] };
+  }
+
+  it("checks the IP with the transport of the unsaved form", async () => {
+    const { probes, response } = await send(
+      "validateIp",
+      { ip: "192.168.178.42", transport: "tcp" },
+      { transport: "udp" },
+    );
+
+    assert.deepEqual(probes, ["tcp 192.168.178.42:502"]);
+    assert.equal(response.reachable, false);
+    assert.match(String(response.error), /192\.168\.178\.42:502/);
+  });
+
+  it("checks the IP with the stored transport when the form sends none", async () => {
+    assert.deepEqual(
+      (await send("validateIp", { ip: "192.168.178.42" }, { transport: "tcp" }))
+        .probes,
+      ["tcp 192.168.178.42:502"],
+    );
+    assert.deepEqual(
+      (
+        await send(
+          "validateIp",
+          { ip: "192.168.178.42", transport: "udp" },
+          { transport: "tcp" },
+        )
+      ).probes,
+      ["udp 192.168.178.42"],
+    );
+  });
+
+  it("searches with the selected transport only", async () => {
+    assert.deepEqual(
+      (await send("discoverInverters", { transport: "tcp" }, {})).probes,
+      ["tcp 192.168.178.7:502"],
+    );
+    assert.deepEqual(
+      (await send("discoverInverters", {}, { transport: "udp" })).probes,
+      ["udp 192.168.178.7"],
+    );
+  });
+
+  it("refuses an invalid IP without probing", async () => {
+    const { probes, response } = await send(
+      "validateIp",
+      { ip: "127.0.0.1" },
+      { ipAddr: "" },
+    );
+
+    assert.deepEqual(probes, []);
+    assert.equal(response.valid, false);
+    // An unusable address in the form falls back to the stored one, empty here.
+    assert.equal(response.error, "IP address must contain four octets");
+  });
+
+  it("answers an unknown command with an error", async () => {
+    const { response } = await send("reboot", {}, {});
+
+    assert.equal(response.error, "Unknown command: reboot");
+  });
+});
+
 describe("admin message limits", () => {
   it("clamps probe timeouts from admin messages", () => {
     assert.equal(clampProbeTimeout(undefined), 700);
@@ -2610,6 +3472,118 @@ describe("admin message limits", () => {
     assert.equal(clampProbeTimeout(1500.9), 1500);
   });
 });
+
+function createTcpInverter(log: ioBroker.Logger = testLogger): GoodWeUdp {
+  const { GoodWeUdp } = proxyquire("../src/GoodWe/GoodWe", {}) as {
+    GoodWeUdp: new (logHost: { log: ioBroker.Logger }) => GoodWeUdp;
+  };
+
+  return new GoodWeUdp({ log });
+}
+
+// Read answer in the AA55 format with the given number of zero registers.
+function buildReadAnswer(count: number): Buffer {
+  return buildRegisterResponse(
+    { ...registerGroups.deviceInfo, count, entries: [] },
+    () => {},
+  );
+}
+
+// Turns an AA55 answer into the Modbus TCP answer to the given request: MBAP
+// header of the request, unit id and PDU, no CRC.
+function toModbusTcpAnswer(request: Buffer, frame: Buffer): Buffer {
+  const unitAndPdu = frame.subarray(2, frame.length - 2);
+  const header = Buffer.from(request.subarray(0, 6));
+
+  header.writeUInt16BE(unitAndPdu.length, 4);
+
+  return Buffer.concat([header, unitAndPdu]);
+}
+
+// Hands every 12 byte request to the answer callback; the client sends one
+// register read or write at a time, each 12 bytes long.
+class FakeModbusTcpServer {
+  readonly requests: Buffer[] = [];
+  connections = 0;
+  private readonly sockets = new Set<net.Socket>();
+  private readonly server: net.Server;
+
+  private constructor(answer: (request: Buffer, socket: net.Socket) => void) {
+    this.server = net.createServer((socket) => {
+      let received = Buffer.alloc(0);
+
+      this.connections++;
+      this.sockets.add(socket);
+      socket.on("close", () => this.sockets.delete(socket));
+      socket.on("data", (chunk) => {
+        received = Buffer.concat([received, chunk]);
+
+        while (received.length >= 12) {
+          const request = received.subarray(0, 12);
+
+          received = received.subarray(12);
+          this.requests.push(request);
+          answer(request, socket);
+        }
+      });
+    });
+  }
+
+  static async start(
+    answer: (request: Buffer, socket: net.Socket) => void,
+  ): Promise<FakeModbusTcpServer> {
+    const server = new FakeModbusTcpServer(answer);
+
+    await new Promise<void>((resolve) =>
+      server.server.listen(0, "127.0.0.1", resolve),
+    );
+
+    return server;
+  }
+
+  get port(): number {
+    return (this.server.address() as net.AddressInfo).port;
+  }
+
+  close(): Promise<void> {
+    for (const socket of this.sockets) {
+      socket.destroy();
+    }
+
+    // Closed twice by the refused connection test: the second call would
+    // otherwise never resolve.
+    if (!this.server.listening) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => this.server.close(() => resolve()));
+  }
+}
+
+// UDP discovery socket that answers the ID request, or stays silent.
+class IdInfoSocket extends EventEmitter {
+  private readonly answer: boolean;
+
+  constructor(answer: boolean) {
+    super();
+    this.answer = answer;
+  }
+
+  send(
+    _request: Buffer,
+    _port: number,
+    _ip: string,
+    callback: (error: Error | null) => void,
+  ): void {
+    callback(null);
+
+    if (this.answer) {
+      process.nextTick(() => this.emit("message", buildIdInfoResponse()));
+    }
+  }
+
+  close(): void {}
+}
 
 // Answers the n-th send with frames[n], or nothing when that entry is null.
 // The last entry is repeated for every further send.

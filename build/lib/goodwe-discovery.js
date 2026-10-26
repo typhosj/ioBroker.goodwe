@@ -192,6 +192,7 @@ function probeGoodWeInverter(ip, options = {}) {
             finish({
                 ip: validation.ip,
                 reachable: true,
+                transport: "udp",
                 idInfo: parseIdInfoResponse(response),
             });
         });
@@ -217,10 +218,11 @@ async function discoverGoodWeInverters(options = {}) {
     const timeoutMs = clampProbeTimeout(options.timeoutMs);
     const concurrency = clampDiscoveryConcurrency(options.concurrency);
     const candidates = getDiscoveryCandidates(options);
+    const probe = options.probe ?? ((ip) => probeGoodWeInverter(ip, { timeoutMs }));
     const found = [];
     for (let index = 0; index < candidates.length; index += concurrency) {
         const batch = candidates.slice(index, index + concurrency);
-        const results = await Promise.all(batch.map((ip) => probeGoodWeInverter(ip, { timeoutMs })));
+        const results = await Promise.all(batch.map((ip) => probe(ip, timeoutMs)));
         for (const result of results) {
             if (result.reachable) {
                 found.push(result);

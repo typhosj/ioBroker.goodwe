@@ -1,13 +1,16 @@
 {
-    "0-5 per UDP request": "0-5 per UDP-verzoek",
+    "0-5 per request": "0-5 per verzoek",
     "Action": "Actie",
     "Advanced settings": "Geavanceerde instellingen",
     "Basic settings": "Basisinstellingen",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.": "Controleer of de omvormer een ET/EH/BH/BT-model is, de WiFi/LAN-dongle 2.0 online is en ioBroker hem bereikt via TCP-poort 502. Zie Probleemoplossing in de README.",
     "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Controleer of de omvormer een ET/EH/BH/BT-model is, de WiFi/LAN-module online is en ioBroker hem bereikt via UDP-poort 8899 (geen repeater, gastnetwerk of VLAN ertussen). Zie Probleemoplossing in de README.",
     "Checking...": "Controleren...",
+    "Connection": "Verbinding",
     "Discover inverters": "Omvormers zoeken",
     "Discovery subnet": "Zoeksubnet",
     "Enable inverter control": "Omvormerbesturing inschakelen",
+    "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.": "Experimenteel: Modbus TCP voor de WiFi/LAN-dongle 2.0.",
     "Found %s inverter(s). Searched %s addresses.": "%s omvormer(s) gevonden. %s adressen doorzocht.",
     "GoodWe settings": "GoodWe-instellingen",
     "Info": "Info",
@@ -21,6 +24,7 @@
     "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, depth of discharge and battery charge current states writable. GoodWe does not document writable registers, so use this at your own risk.": "Maakt de states teruglevering aan/uit, teruglevergrens, EMS-modus, EMS-vermogensgrens, ontlaaddiepte en laadstroom van de batterij beschrijfbaar. GoodWe documenteert geen beschrijfbare registers, gebruik op eigen risico.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Hoofdschakelaar voor de optionele registergroepen hieronder. Bedrijfsgegevens, metergegevens en BMS-informatie worden altijd gelezen.",
     "Milliseconds, 1000-30000": "Milliseconden, 1000-30000",
+    "Modbus TCP port 502 (WiFi/LAN dongle 2.0)": "Modbus TCP, poort 502 (WiFi/LAN-dongle 2.0)",
     "No inverter found. Searched %s addresses.": "Geen omvormer gevonden. %s adressen doorzocht.",
     "Poll BMS detail": "BMS-details pollen",
     "Poll BMS extended": "Uitgebreide BMS-gegevens pollen",
@@ -45,6 +49,7 @@
     "Searching...": "Zoeken...",
     "Seconds, 2-3600": "Seconden, 2-3600",
     "Timeout": "Time-out",
+    "UDP port 8899 (WiFi dongle)": "UDP-poort 8899 (WiFi-dongle)",
     "Use": "Gebruiken",
     "Validate inverter IP": "Omvormer-IP controleren"
 }

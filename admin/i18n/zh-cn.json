@@ -1,13 +1,16 @@
 {
-    "0-5 per UDP request": "每个 UDP 请求 0-5 次",
+    "0-5 per request": "每个请求 0-5 次",
     "Action": "操作",
     "Advanced settings": "高级设置",
     "Basic settings": "基本设置",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.": "请检查逆变器是否为 ET/EH/BH/BT 系列，其 WiFi/LAN 模块 2.0 是否在线，以及 ioBroker 能否通过 TCP 端口 502 访问它。请参阅 README 中的故障排除。",
     "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "请检查逆变器是否为 ET/EH/BH/BT 系列，其 WiFi/LAN 模块是否在线，以及 ioBroker 能否通过 UDP 端口 8899 访问它（中间不能有中继器、访客网络或 VLAN）。请参阅 README 中的故障排除。",
     "Checking...": "正在检查...",
+    "Connection": "连接",
     "Discover inverters": "发现逆变器",
     "Discovery subnet": "发现子网",
     "Enable inverter control": "启用逆变器控制",
+    "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.": "实验性功能：用于 WiFi/LAN 模块 2.0 的 Modbus TCP。",
     "Found %s inverter(s). Searched %s addresses.": "找到 %s 个逆变器。已搜索 %s 个地址。",
     "GoodWe settings": "GoodWe 设置",
     "Info": "信息",
@@ -21,6 +24,7 @@
     "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, depth of discharge and battery charge current states writable. GoodWe does not document writable registers, so use this at your own risk.": "使并网馈电开关、并网馈电限值、EMS 模式、EMS 功率限值、放电深度和电池充电电流状态可写。GoodWe 未公开可写寄存器，请自行承担风险。",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "下方可选寄存器组的总开关。运行数据、电表数据和 BMS 信息始终会读取。",
     "Milliseconds, 1000-30000": "毫秒，1000-30000",
+    "Modbus TCP port 502 (WiFi/LAN dongle 2.0)": "Modbus TCP，端口 502（WiFi/LAN 模块 2.0）",
     "No inverter found. Searched %s addresses.": "未找到逆变器。已搜索 %s 个地址。",
     "Poll BMS detail": "轮询 BMS 详情",
     "Poll BMS extended": "轮询扩展 BMS",
@@ -45,6 +49,7 @@
     "Searching...": "正在搜索...",
     "Seconds, 2-3600": "秒，2-3600",
     "Timeout": "超时",
+    "UDP port 8899 (WiFi dongle)": "UDP 端口 8899（WiFi 模块）",
     "Use": "使用",
     "Validate inverter IP": "验证逆变器 IP"
 }

@@ -1,13 +1,16 @@
 {
-    "0-5 per UDP request": "0-5 par requête UDP",
+    "0-5 per request": "0-5 par requête",
     "Action": "Action",
     "Advanced settings": "Paramètres avancés",
     "Basic settings": "Paramètres de base",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.": "Vérifiez que l'onduleur est un modèle ET/EH/BH/BT, que son dongle WiFi/LAN 2.0 est en ligne et qu'ioBroker l'atteint sur le port TCP 502. Voir le dépannage dans le README.",
     "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Vérifiez que l'onduleur est un modèle ET/EH/BH/BT, que son module WiFi/LAN est en ligne et qu'ioBroker l'atteint sur le port UDP 8899 (sans répéteur, réseau invité ou VLAN entre les deux). Voir le dépannage dans le README.",
     "Checking...": "Vérification...",
+    "Connection": "Connexion",
     "Discover inverters": "Découvrir les onduleurs",
     "Discovery subnet": "Sous-réseau de découverte",
     "Enable inverter control": "Activer le pilotage de l'onduleur",
+    "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.": "Expérimental : Modbus TCP pour le dongle WiFi/LAN 2.0.",
     "Found %s inverter(s). Searched %s addresses.": "%s onduleur(s) trouvé(s). %s adresses recherchées.",
     "GoodWe settings": "Paramètres GoodWe",
     "Info": "Info",
@@ -21,6 +24,7 @@
     "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, depth of discharge and battery charge current states writable. GoodWe does not document writable registers, so use this at your own risk.": "Rend les états activation de l'injection réseau, limite d'injection réseau, mode EMS, limite de puissance EMS, profondeur de décharge et courant de charge de la batterie accessibles en écriture. GoodWe ne documente pas les registres inscriptibles, utilisation à vos propres risques.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Interrupteur principal des groupes de registres optionnels ci-dessous. Les données de fonctionnement, les données du compteur et les informations BMS sont toujours lues.",
     "Milliseconds, 1000-30000": "Millisecondes, 1000-30000",
+    "Modbus TCP port 502 (WiFi/LAN dongle 2.0)": "Modbus TCP, port 502 (dongle WiFi/LAN 2.0)",
     "No inverter found. Searched %s addresses.": "Aucun onduleur trouvé. %s adresses recherchées.",
     "Poll BMS detail": "Interroger les détails BMS",
     "Poll BMS extended": "Interroger les données BMS étendues",
@@ -45,6 +49,7 @@
     "Searching...": "Recherche...",
     "Seconds, 2-3600": "Secondes, 2-3600",
     "Timeout": "Délai d'attente",
+    "UDP port 8899 (WiFi dongle)": "Port UDP 8899 (dongle WiFi)",
     "Use": "Utiliser",
     "Validate inverter IP": "Valider l'IP de l'onduleur"
 }

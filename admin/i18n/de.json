@@ -1,13 +1,16 @@
 {
-    "0-5 per UDP request": "0-5 pro UDP-Anfrage",
+    "0-5 per request": "0-5 pro Anfrage",
     "Action": "Aktion",
     "Advanced settings": "Erweiterte Einstellungen",
     "Basic settings": "Grundeinstellungen",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.": "Prüfen Sie, ob der Wechselrichter ein ET/EH/BH/BT-Modell ist, sein WLAN/LAN-Dongle 2.0 online ist und ioBroker ihn über TCP-Port 502 erreicht. Siehe Fehlerbehebung im README.",
     "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Prüfen Sie, ob der Wechselrichter ein ET/EH/BH/BT-Modell ist, sein WLAN/LAN-Modul online ist und ioBroker ihn über UDP-Port 8899 erreicht (kein Repeater, Gastnetz oder VLAN dazwischen). Siehe Fehlerbehebung im README.",
     "Checking...": "Prüfe...",
+    "Connection": "Verbindung",
     "Discover inverters": "Wechselrichter suchen",
     "Discovery subnet": "Such-Subnetz",
     "Enable inverter control": "Wechselrichter-Steuerung aktivieren",
+    "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.": "Experimentell: Modbus TCP für den WLAN/LAN-Dongle 2.0.",
     "Found %s inverter(s). Searched %s addresses.": "%s Wechselrichter gefunden. %s Adressen durchsucht.",
     "GoodWe settings": "GoodWe-Einstellungen",
     "Info": "Info",
@@ -21,6 +24,7 @@
     "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, depth of discharge and battery charge current states writable. GoodWe does not document writable registers, so use this at your own risk.": "Macht die Datenpunkte Einspeisung an/aus, Einspeisebegrenzung, EMS-Modus, EMS-Leistungsgrenze, Entladetiefe und Batterieladestrom beschreibbar. GoodWe dokumentiert keine beschreibbaren Register, die Nutzung erfolgt auf eigene Gefahr.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Hauptschalter für die optionalen Registergruppen unten. Laufzeitdaten, Zählerdaten und BMS-Informationen werden immer gelesen.",
     "Milliseconds, 1000-30000": "Millisekunden, 1000-30000",
+    "Modbus TCP port 502 (WiFi/LAN dongle 2.0)": "Modbus TCP, Port 502 (WLAN/LAN-Dongle 2.0)",
     "No inverter found. Searched %s addresses.": "Kein Wechselrichter gefunden. %s Adressen durchsucht.",
     "Poll BMS detail": "BMS-Details abfragen",
     "Poll BMS extended": "Erweiterte BMS-Daten abfragen",
@@ -45,6 +49,7 @@
     "Searching...": "Suche...",
     "Seconds, 2-3600": "Sekunden, 2-3600",
     "Timeout": "Zeitlimit",
+    "UDP port 8899 (WiFi dongle)": "UDP-Port 8899 (WLAN-Dongle)",
     "Use": "Verwenden",
     "Validate inverter IP": "Wechselrichter-IP prüfen"
 }

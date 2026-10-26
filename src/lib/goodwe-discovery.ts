@@ -2,7 +2,7 @@
 
 import dgram from "node:dgram";
 import os from "node:os";
-import { clampNumber } from "./config";
+import { clampNumber, type Transport } from "./config";
 import { errorMessage } from "./errors";
 
 const GOODWE_PORT = 8899;
@@ -32,6 +32,7 @@ interface IdInfo {
 interface ProbeResult {
   ip: string;
   reachable: boolean;
+  transport?: Transport;
   idInfo?: Partial<IdInfo>;
   error?: string;
 }
@@ -48,7 +49,12 @@ interface DiscoveryOptions {
   timeoutMs?: number;
   concurrency?: number;
   log?: LoggerLike;
+  // Probes one address, UDP by default. Passed in for Modbus TCP because the
+  // TCP probe runs on the GoodWe client, which imports this module.
+  probe?: Probe;
 }
+
+type Probe = (ip: string, timeoutMs: number) => Promise<ProbeResult>;
 
 function validateIpv4Address(ip: unknown): IpValidation {
   if (typeof ip !== "string") {
@@ -264,6 +270,7 @@ function probeGoodWeInverter(
       finish({
         ip: validation.ip,
         reachable: true,
+        transport: "udp",
         idInfo: parseIdInfoResponse(response),
       });
     });
@@ -294,13 +301,13 @@ async function discoverGoodWeInverters(
   const timeoutMs = clampProbeTimeout(options.timeoutMs);
   const concurrency = clampDiscoveryConcurrency(options.concurrency);
   const candidates = getDiscoveryCandidates(options);
+  const probe: Probe =
+    options.probe ?? ((ip) => probeGoodWeInverter(ip, { timeoutMs }));
   const found = [];
 
   for (let index = 0; index < candidates.length; index += concurrency) {
     const batch = candidates.slice(index, index + concurrency);
-    const results = await Promise.all(
-      batch.map((ip) => probeGoodWeInverter(ip, { timeoutMs })),
-    );
+    const results = await Promise.all(batch.map((ip) => probe(ip, timeoutMs)));
 
     for (const result of results) {
       if (result.reachable) {
@@ -400,6 +407,7 @@ export type {
   DiscoveryOptions,
   IdInfo,
   IpValidation,
+  Probe,
   ProbeOptions,
   ProbeResult,
 };

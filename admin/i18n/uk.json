@@ -1,13 +1,16 @@
 {
-    "0-5 per UDP request": "0-5 на UDP-запит",
+    "0-5 per request": "0-5 на запит",
     "Action": "Дія",
     "Advanced settings": "Розширені налаштування",
     "Basic settings": "Основні налаштування",
+    "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN dongle 2.0 is online and ioBroker reaches it on TCP port 502. See Troubleshooting in the README.": "Перевірте, що інвертор належить до серії ET/EH/BH/BT, його WiFi/LAN-донгл 2.0 у мережі й ioBroker досягає його через TCP-порт 502. Див. розділ усунення несправностей у README.",
     "Check that the inverter is an ET/EH/BH/BT model, its WiFi/LAN module is online and ioBroker reaches it on UDP port 8899 (no repeater, guest network or VLAN in between). See Troubleshooting in the README.": "Перевірте, що інвертор належить до серії ET/EH/BH/BT, його модуль WiFi/LAN у мережі й ioBroker досягає його через UDP-порт 8899 (без репітера, гостьової мережі чи VLAN між ними). Див. розділ усунення несправностей у README.",
     "Checking...": "Перевірка...",
+    "Connection": "Підключення",
     "Discover inverters": "Знайти інвертори",
     "Discovery subnet": "Підмережа пошуку",
     "Enable inverter control": "Увімкнути керування інвертором",
+    "Experimental: Modbus TCP for the WiFi/LAN dongle 2.0.": "Експериментально: Modbus TCP для WiFi/LAN-донгла 2.0.",
     "Found %s inverter(s). Searched %s addresses.": "Знайдено інверторів: %s. Перевірено адрес: %s.",
     "GoodWe settings": "Налаштування GoodWe",
     "Info": "Інформація",
@@ -21,6 +24,7 @@
     "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, depth of discharge and battery charge current states writable. GoodWe does not document writable registers, so use this at your own risk.": "Робить стани увімкнення віддачі в мережу, обмеження віддачі в мережу, режиму EMS, межі потужності EMS, глибини розряду та струму заряду батареї доступними для запису. GoodWe не документує записувані регістри, використовуйте на власний ризик.",
     "Master switch for the optional register groups below. Running data, meter data and BMS info are always read.": "Головний перемикач для додаткових груп регістрів нижче. Робочі дані, дані лічильника та інформація BMS зчитуються завжди.",
     "Milliseconds, 1000-30000": "Мілісекунди, 1000-30000",
+    "Modbus TCP port 502 (WiFi/LAN dongle 2.0)": "Modbus TCP, порт 502 (WiFi/LAN-донгл 2.0)",
     "No inverter found. Searched %s addresses.": "Інвертор не знайдено. Перевірено адрес: %s.",
     "Poll BMS detail": "Опитувати деталі BMS",
     "Poll BMS extended": "Опитувати розширені дані BMS",
@@ -45,6 +49,7 @@
     "Searching...": "Пошук...",
     "Seconds, 2-3600": "Секунди, 2-3600",
     "Timeout": "Тайм-аут",
+    "UDP port 8899 (WiFi dongle)": "UDP-порт 8899 (WiFi-донгл)",
     "Use": "Використати",
     "Validate inverter IP": "Перевірити IP інвертора"
 }
