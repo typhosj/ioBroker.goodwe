@@ -1,5 +1,12 @@
 # Older changes
 
+## 1.1.1 (2026-07-16)
+- (ioBroker-Bot) Adapter requires admin >= 7.8.23 now.
+- Migrated the admin configuration page to a React based UI and removed the legacy Materialize UI files.
+- Added translations for the admin configuration page and documented numeric setting limits.
+- Avoided rebuilding the admin bundle during GitHub installs.
+- Excluded `CHANGELOG_OLD.md` from the npm package.
+
 ## 1.1.0 (2026-06-24)
 * Migrated the adapter runtime to TypeScript
 * Raised the minimum Node.js version to 22
