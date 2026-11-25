@@ -33,7 +33,8 @@ import {
 import SettingsIcon from "@mui/icons-material/Settings";
 import TuneIcon from "@mui/icons-material/Tune";
 import Grid from "@mui/material/Grid2";
-import React, { useCallback, useMemo, useState } from "react";
+import type React from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   clampNumber,

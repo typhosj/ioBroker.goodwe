@@ -60,9 +60,12 @@
     "vite": "^8.2.4"
   },
   "overrides": {
-    "brace-expansion": "^1.1.15",
     "diff": "^9.0.0",
     "esbuild": "^0.25.12",
+    "glob": "^14.0.3",
+    "mocha": {
+      "minimatch": "^11.0.1"
+    },
     "serialize-javascript": "^7.0.6"
   },
   "main": "build/main.js",
