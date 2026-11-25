@@ -1,12 +1,8 @@
 "use strict";
 
 import {
-  checkEcoSlot,
-  type EcoSlot,
-  ecoSlotFromJson,
-  ecoSlotJson,
   EcoModeV2Probe,
-  encodeEcoSlot,
+  mergeEcoSlot,
   parseEcoSlotChanges,
   type ProbeResult,
 } from "./eco-mode";
@@ -154,6 +150,29 @@ function clampWriteValue(
 }
 
 /**
+ * Reads a register group and writes what the inverter holds to its states.
+ *
+ * Returns false when the group is unknown or the read failed.
+ *
+ * @param context adapter, inverter and state manager
+ * @param groupName register group to read
+ */
+async function readGroupBack(
+  context: ControlContext,
+  groupName: string,
+): Promise<boolean> {
+  if (
+    groupName === "" ||
+    !(await context.inverter.ReadGroup(groupName, controlReadOptions))
+  ) {
+    return false;
+  }
+
+  await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
+  return true;
+}
+
+/**
  * Reads the register group of a state and writes what the inverter holds.
  *
  * Returns false when the state has no group or the read failed.
@@ -165,17 +184,7 @@ async function readBack(
   context: ControlContext,
   stateId: string,
 ): Promise<boolean> {
-  const groupName = registerGroupOfState(stateId);
-
-  if (
-    groupName === "" ||
-    !(await context.inverter.ReadGroup(groupName, controlReadOptions))
-  ) {
-    return false;
-  }
-
-  await context.states.UpdateStatesFromRegisterMap(registerGroups[groupName]);
-  return true;
+  return readGroupBack(context, registerGroupOfState(stateId));
 }
 
 /**
@@ -244,8 +253,8 @@ async function sendControlWrite(
     return;
   }
 
-  if (entry.type === TYPE.ECO_SLOT) {
-    await sendEcoSlotWrite(context, stateId, entry, stateValue);
+  if (entry.type === TYPE.ECO_SLOT || entry.type === TYPE.ECO_SLOT_V2) {
+    await sendEcoSlotWrite(context, stateId, stateValue);
     return;
   }
 
@@ -396,31 +405,22 @@ async function setEmsModeAuto(context: ControlContext): Promise<boolean> {
  * Writes one eco mode slot from the JSON a script wrote to its state.
  *
  * The slot is read first and the fields the script named replace the ones the
- * inverter holds, then all four registers go out in one request and the slot
- * is read back.
+ * inverter holds, then the whole slot goes out in one request and is read
+ * back: four registers on EcoModeV1 firmware, six on EcoModeV2 firmware.
  *
  * @param context adapter, inverter and state manager
  * @param stateId state id without the adapter namespace
- * @param entry register entry of the slot
  * @param stateValue value written to the state
  */
 async function sendEcoSlotWrite(
   context: ControlContext,
   stateId: string,
-  entry: RegisterEntry,
   stateValue: ioBroker.StateValue,
 ): Promise<void> {
-  const refuse = async (reason: string): Promise<void> => {
-    context.adapter.log.warn(`Ignoring write to ${stateId}: ${reason}`);
-    await readBack(context, stateId);
-  };
-
-  // Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2). Whether it still
-  // takes writes to 47515 is unknown, and nobody could test writes to 47547
-  // yet, so it gets no write. Checked per write, as a firmware update does not
-  // have to drop the connection, and before the JSON check, so that a refusal
-  // never reads back 47515: that layout has no slot type and shows slots that
-  // were never set as switched on.
+  // Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2) and still answers
+  // 47515 with the same slots in the older layout; what it does with a write
+  // there is unknown. Checked per write, as a firmware update does not have to
+  // drop the connection.
   const probe = await context.inverter.ProbeRegisters(
     EcoModeV2Probe.start,
     EcoModeV2Probe.count,
@@ -430,87 +430,88 @@ async function sendEcoSlotWrite(
     return;
   }
 
-  if (probe === "answered") {
+  // The read back of 47547 checks the firmware once more, as EcoModeV1
+  // firmware rejects it. Known limit: when that answer is lost as well and
+  // 47515 answers, firmware from ARM 19 shows its slots in the older layout
+  // until the next poll reads 47547 again.
+  if (probe === "lost") {
     context.adapter.log.warn(
-      `Ignoring write to ${stateId}: this firmware uses the newer eco mode registers, which the adapter does not write yet`,
+      `Ignoring write to ${stateId}: could not check which eco mode registers the firmware uses`,
     );
 
-    const group = registerGroups.settingsEcoModeV2;
-
-    if (
-      await context.inverter.ReadGroup("settingsEcoModeV2", controlReadOptions)
-    ) {
-      await context.states.UpdateStatesFromRegisterMap(group);
+    if (!(await readGroupBack(context, "settingsEcoModeV2"))) {
+      await readGroupBack(context, "settingsEcoMode");
     }
+
     return;
   }
 
-  // Known limit: on firmware from ARM 19 this read back shows the slots of
-  // 47515 until the next poll reads 47547 again.
-  if (probe === "lost") {
-    await refuse("could not check which eco mode registers the firmware uses");
+  const v2 = probe === "answered";
+  const groupName = v2 ? "settingsEcoModeV2" : "settingsEcoMode";
+  const group = registerGroups[groupName];
+  // Both groups hold the same state ids, at the addresses of their layout.
+  const entry = group.entries.find((item) => item.state === stateId);
+  // The read back takes the group of the probed layout: 47515 has no slot type
+  // and shows slots that were never set as switched on.
+  const refuse = async (reason: string): Promise<void> => {
+    context.adapter.log.warn(`Ignoring write to ${stateId}: ${reason}`);
+    await readGroupBack(context, groupName);
+  };
+
+  if (entry === undefined) {
     return;
   }
 
-  const parsed = parseEcoSlotChanges(stateValue);
+  const parsed = parseEcoSlotChanges(stateValue, v2);
 
   if ("error" in parsed) {
     await refuse(parsed.error);
     return;
   }
 
-  const group = registerGroups.settingsEcoMode;
-
-  if (
-    !(await context.inverter.ReadGroup("settingsEcoMode", controlReadOptions))
-  ) {
+  if (!(await context.inverter.ReadGroup(groupName, controlReadOptions))) {
     context.adapter.log.warn(
       `Ignoring write to ${stateId}: could not read the slot first`,
     );
     return;
   }
 
-  const current = ecoSlotFromJson(context.states.RegisterValue(group, entry));
+  const plan = mergeEcoSlot(
+    context.states.RegisterValue(group, entry),
+    parsed.changes,
+    v2,
+  );
 
-  // Only a broken read gets here; it must not be merged into a write.
-  if (current === null) {
-    await refuse("could not read the slot first");
+  if ("error" in plan) {
+    await refuse(plan.error);
     return;
   }
 
-  const slot: EcoSlot = { ...current, ...parsed.changes };
-  const invalid = checkEcoSlot(slot);
-
-  if (invalid !== null) {
-    await refuse(invalid);
-    return;
-  }
-
-  const values = encodeEcoSlot(slot);
-  const shown = ecoSlotJson(slot);
-
-  if (values.join() === encodeEcoSlot(current).join()) {
+  if (plan.unchanged) {
     context.adapter.log.debug(
-      `Skipping write to ${stateId}: inverter already holds ${shown}`,
+      `Skipping write to ${stateId}: inverter already holds ${plan.shown}`,
     );
     await context.states.UpdateStatesFromRegisterMap(group);
     return;
   }
 
-  const written = await context.inverter.WriteRegisters(entry.address, values);
+  const written = await context.inverter.WriteRegisters(
+    entry.address,
+    plan.values,
+  );
 
   if (context.inverter.Closed) {
     return;
   }
 
   if (written) {
-    context.adapter.log.info(`Wrote ${shown} to ${stateId}`);
+    context.adapter.log.info(`Wrote ${plan.shown} to ${stateId}`);
   } else {
     context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
   }
 
-  if (!(await readBack(context, stateId)) && written) {
-    await context.states.Acknowledge(stateId, shown);
+  if (!(await readGroupBack(context, groupName)) && written) {
+    await context.states.Acknowledge(stateId, plan.shown);
   }
 }
 

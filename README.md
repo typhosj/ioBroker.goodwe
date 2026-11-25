@@ -66,7 +66,7 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 | `Settings.GridExportEnabled`, `Settings.GridExportLimit` | Grid export limit switch and value |
 | `Settings.EmsMode`, `Settings.EmsPowerLimit` | EMS mode and the power the EMS mode works with |
 | `Settings.WorkMode` | Work mode set in the SolarGo app: 0 general, 1 off-grid, 2 backup, 3 eco, 4 peak shaving, 5 self-use. With inverter control, 0 and 3 can be written |
-| `Settings.EcoMode.Slot1.*` ... `Settings.EcoMode.Slot4.*` | Eco mode time slots: start, end, power, days, on/off and the whole slot as JSON; on ARM firmware 19 and newer also type, SoC and months. With inverter control, the JSON state can be written on ARM firmware before 19, see below |
+| `Settings.EcoMode.Slot1.*` ... `Settings.EcoMode.Slot4.*` | Eco mode time slots: start, end, power, days, on/off and the whole slot as JSON; on ARM firmware 19 and newer also type, SoC and months. With inverter control, the JSON state can be written, see below |
 | `Settings.LoadControl.*` | Load control output (mode, switch, SOC) as plain numbers, because GoodWe does not document their meaning. Read only, needs ARM firmware 19 or newer |
 
 ## Configuration
@@ -114,7 +114,7 @@ several registers (Modbus function 0x10). Every other state stays read-only.
 | `Settings.Battery.ChargeCurrent` | 45353 | 0-100 A | Maximum battery charge current; the BMS may limit it further |
 | `Settings.Battery.DischargeCurrent` | 45355 | 0-100 A | Maximum battery discharge current; the BMS may limit it further. The inverter returns to its default after a reboot, so a script has to write the value again |
 | `Settings.WorkMode` | 47000 | 0, 3 | Work mode: 0 general, 3 eco. Sets the EMS mode to auto first, see below |
-| `Settings.EcoMode.Slot1.Json` ... `Slot4.Json` | 47515-47530 | JSON | One eco mode time slot, ARM firmware before 19 only, see [Eco mode time slots](#eco-mode-time-slots) |
+| `Settings.EcoMode.Slot1.Json` ... `Slot4.Json` | 47515-47530, from ARM 19 47547-47570 | JSON | One eco mode time slot, see [Eco mode time slots](#eco-mode-time-slots) |
 
 `GridExportLimit`, `EmsPowerLimit`, the depths of discharge, `ChargeCurrent` and `DischargeCurrent`
 clamp values outside their range. The inverter stores the depth of discharge as the remaining reserve, 100 minus the value
@@ -188,8 +188,15 @@ JSON state carries `type`, `soc` and `months` as well:
 {"start":"00:00","end":"23:59","power":-50,"days":127,"enabled":true,"type":0,"soc":80,"months":0}
 ```
 
-On this firmware a slot cannot be written yet, because nobody could test the writes so far. Every
-slot write checks the firmware again, is refused there with a warning, and the slot is read back.
+On this firmware the JSON state takes `soc` (0-100) and `months` (0-4095) as well, and the slot is
+written the same way, all six registers in one request. Only an eco mode slot (type 0) or a slot that
+was never set (85) is written, and it is always written as an eco mode slot; `type` may be sent, but
+only as 0. A write to a slot of any other type is refused, because it would replace a peak shaving,
+dry contact, backup or smart charge slot set in the SolarGo app. Type 6 is refused as well: it scales
+the power differently, and no ET inverter has shown it so far.
+
+Every slot write checks the firmware again, so a firmware update does not need a restart of the
+adapter.
 
 ### Risk
 
@@ -235,7 +242,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - The battery discharge current (`Settings.Battery.DischargeCurrent`, up to 100 A) can be written when inverter control is on. The inverter returns to its default after a reboot, so a script can now restore a lower limit, for example for older batteries (#60).
 - The work mode (`Settings.WorkMode`) can be written when inverter control is on, limited to general (0) and eco (3). Off-grid, backup, peak shaving and self-use are refused. Like the SolarGo app, the adapter first sets the EMS mode to auto and the EMS power limit to 0 in one request, or in two single writes if the inverter refuses the combined request, so a manual EMS mode does not keep the inverter from following the work mode (#61).
 - Added the eco mode time slots (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state. On ARM firmware before 19 the JSON state can be written when inverter control is on: a partial JSON keeps the other fields, an empty start or end takes the time off a slot that is switched off, and the slot is written in one request and read back (#61).
-- On ARM firmware 19 and newer the eco mode time slots are read from their newer registers (47547-47570) into the same states, with the slot type, SoC and months as additional states. These slots cannot be written yet; a write is refused with a warning.
+- On ARM firmware 19 and newer the eco mode time slots are read from their newer registers (47547-47570) into the same states, with the slot type, SoC and months as additional states. The JSON state writes them as well, including SoC and months, but only eco mode slots and slots that were never set; slots of another type, for example peak shaving, are refused.
 - The work mode and the eco mode slots are read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, they are read even when `pollSettings` or `pollExtended` is off, which adds two requests per poll cycle.
 
 ### 1.3.0 (2026-10-27)

@@ -343,7 +343,7 @@ class GoodWePollScheduler {
 
     if (probe === "answered") {
       this.adapter.log.info(
-        "This firmware uses the newer eco mode registers, the eco mode slots are read from 47547 and cannot be written",
+        "This firmware uses the newer eco mode registers, the eco mode slots are read from 47547",
       );
     }
 

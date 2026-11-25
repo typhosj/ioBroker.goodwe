@@ -797,10 +797,11 @@ export class GoodWeUdp {
    */
   async WriteRegisters(start: number, values: number[]): Promise<boolean> {
     // The caller checks the values; this guards the frame itself. Modbus allows
-    // 123 registers per request, the adapter sends at most one eco mode slot.
+    // 123 registers per request, the adapter sends at most one eco mode slot:
+    // six registers with the EcoModeV2 layout.
     if (
       values.length < 1 ||
-      values.length > 4 ||
+      values.length > 6 ||
       !values.every(
         (value) => Number.isInteger(value) && value >= 0 && value <= 0xffff,
       )

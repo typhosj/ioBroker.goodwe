@@ -266,7 +266,7 @@ class GoodWePollScheduler {
         this.ecoModeGroup =
             probe === "rejected" ? "settingsEcoMode" : "settingsEcoModeV2";
         if (probe === "answered") {
-            this.adapter.log.info("This firmware uses the newer eco mode registers, the eco mode slots are read from 47547 and cannot be written");
+            this.adapter.log.info("This firmware uses the newer eco mode registers, the eco mode slots are read from 47547");
         }
         return this.ecoModeGroup;
     }

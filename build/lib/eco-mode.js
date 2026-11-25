@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EcoSlotV2Starts = exports.EcoSlotV2Registers = exports.EcoSlotStarts = exports.EcoSlotRegisters = exports.EcoModeV2Probe = void 0;
 exports.checkEcoSlot = checkEcoSlot;
+exports.checkEcoSlotV2 = checkEcoSlotV2;
 exports.decodeEcoSlot = decodeEcoSlot;
 exports.decodeEcoSlotV2 = decodeEcoSlotV2;
 exports.decodeEcoTime = decodeEcoTime;
@@ -9,7 +10,9 @@ exports.decodeSlotType = decodeSlotType;
 exports.ecoSlotFromJson = ecoSlotFromJson;
 exports.ecoSlotJson = ecoSlotJson;
 exports.encodeEcoSlot = encodeEcoSlot;
+exports.encodeEcoSlotV2 = encodeEcoSlotV2;
 exports.isSlotOn = isSlotOn;
+exports.mergeEcoSlot = mergeEcoSlot;
 exports.parseEcoSlotChanges = parseEcoSlotChanges;
 const EcoSlotStarts = [47515, 47519, 47523, 47527];
 exports.EcoSlotStarts = EcoSlotStarts;
@@ -29,6 +32,10 @@ const AllDays = 0x7f;
 // Power in % of the rated power, both directions.
 const MaxPower = 100;
 const Fields = ["start", "end", "power", "days", "enabled"];
+const FieldsV2 = [...Fields, "type", "soc", "months"];
+const SlotTypeEco = 0;
+const MaxSoc = 100;
+const AllMonths = 0x0fff;
 /**
  * Formats a time register as "HH:MM", or "" for a slot without a time.
  *
@@ -127,6 +134,25 @@ function decodeEcoSlotV2(bytes) {
     };
 }
 /**
+ * Encodes one V2 slot into its six register values, unsigned 16 bit.
+ *
+ * The on/off byte keeps the slot type, so the slot a write starts from
+ * encodes to what the inverter holds.
+ *
+ * @param slot slot checked with checkEcoSlotV2()
+ */
+function encodeEcoSlotV2(slot) {
+    const onOff = slot.enabled ? (-1 - slot.type) & 0xff : slot.type & 0xff;
+    return [
+        encodeEcoTime(slot.start),
+        encodeEcoTime(slot.end),
+        (onOff << 8) | (slot.days & 0xff),
+        slot.power & 0xffff,
+        slot.soc & 0xffff,
+        slot.months & 0xffff,
+    ];
+}
+/**
  * Encodes one slot into its four register values, unsigned 16 bit.
  *
  * @param slot slot checked with checkEcoSlot()
@@ -171,9 +197,11 @@ function isInRange(value, min, max) {
  * "power" would otherwise be a write that silently changes nothing.
  *
  * @param value value written to the state
+ * @param v2 whether the slot has the EcoModeV2 layout, which adds type, soc
+ * and months
  * @returns the changed fields, or the reason the value is refused
  */
-function parseEcoSlotChanges(value) {
+function parseEcoSlotChanges(value, v2 = false) {
     if (typeof value !== "string") {
         return { error: "expected a JSON object as text" };
     }
@@ -188,8 +216,9 @@ function parseEcoSlotChanges(value) {
         return { error: "expected a JSON object" };
     }
     const changes = parsed;
+    const fields = v2 ? FieldsV2 : Fields;
     for (const key of Object.keys(changes)) {
-        if (!Fields.includes(key)) {
+        if (!fields.includes(key)) {
             return { error: `unknown field "${key}"` };
         }
     }
@@ -212,6 +241,20 @@ function parseEcoSlotChanges(value) {
     }
     if ("enabled" in changes && typeof changes.enabled !== "boolean") {
         return { error: "enabled has to be true or false" };
+    }
+    // Only eco mode slots are written; a script may send back the JSON it read.
+    if ("type" in changes && changes.type !== SlotTypeEco) {
+        return {
+            error: `type has to be ${SlotTypeEco}, only eco mode slots are written`,
+        };
+    }
+    if ("soc" in changes && !isInRange(changes.soc, 0, MaxSoc)) {
+        return { error: `soc has to be a whole number from 0 to ${MaxSoc}` };
+    }
+    if ("months" in changes && !isInRange(changes.months, 0, AllMonths)) {
+        return {
+            error: `months has to be a whole number from 0 to ${AllMonths}`,
+        };
     }
     return { changes };
 }
@@ -280,4 +323,101 @@ function ecoSlotFromJson(value) {
             enabled: slot.enabled,
         }
         : null;
+}
+/**
+ * Checks a merged V2 slot before it is written, see checkEcoSlot().
+ *
+ * @param slot slot about to be written
+ * @returns the reason the slot must not be written, or null
+ */
+function checkEcoSlotV2(slot) {
+    const invalid = checkEcoSlot(slot);
+    if (invalid !== null) {
+        return invalid;
+    }
+    if (!isInRange(slot.soc, 0, MaxSoc)) {
+        return `the inverter holds an invalid soc ${slot.soc}`;
+    }
+    if (!isInRange(slot.months, 0, AllMonths)) {
+        return `the inverter holds invalid months ${slot.months}`;
+    }
+    return null;
+}
+/**
+ * Reads back the V2 slot a JSON state shows, as the register parser wrote it.
+ *
+ * @param value state value
+ * @returns the slot, or null for anything the parser does not write
+ */
+function ecoSlotV2FromJson(value) {
+    const slot = ecoSlotFromJson(value);
+    if (slot === null) {
+        return null;
+    }
+    const extra = JSON.parse(String(value));
+    return typeof extra.type === "number" &&
+        typeof extra.soc === "number" &&
+        typeof extra.months === "number"
+        ? { ...slot, type: extra.type, soc: extra.soc, months: extra.months }
+        : null;
+}
+/**
+ * Merges the fields a script wrote onto the slot the inverter holds and
+ * returns what to send.
+ *
+ * A V2 slot is only written while it is an eco mode slot or was never set:
+ * the same registers hold peak shaving, dry contact, backup and smart charge
+ * slots, which a write would turn into eco mode slots. Type 6, eco mode on the
+ * 745 platform, scales the power by ten and is not written either, since no
+ * ET inverter has shown it yet. A written V2 slot is always an eco mode slot.
+ *
+ * @param stored JSON state value of the slot as last read
+ * @param changes fields parsed by parseEcoSlotChanges()
+ * @param v2 whether the slot has the EcoModeV2 layout
+ * @returns the register values, whether they match the stored slot, and the
+ * JSON the state shows after the write; or the reason not to write
+ */
+function mergeEcoSlot(stored, changes, v2) {
+    if (!v2) {
+        const current = ecoSlotFromJson(stored);
+        // Only a broken read gets here; it must not be merged into a write.
+        if (current === null) {
+            return { error: "could not read the slot first" };
+        }
+        const slot = {
+            start: changes.start ?? current.start,
+            end: changes.end ?? current.end,
+            power: changes.power ?? current.power,
+            days: changes.days ?? current.days,
+            enabled: changes.enabled ?? current.enabled,
+        };
+        const invalid = checkEcoSlot(slot);
+        const values = encodeEcoSlot(slot);
+        return invalid !== null
+            ? { error: invalid }
+            : {
+                values,
+                unchanged: values.join() === encodeEcoSlot(current).join(),
+                shown: ecoSlotJson(slot),
+            };
+    }
+    const current = ecoSlotV2FromJson(stored);
+    if (current === null) {
+        return { error: "could not read the slot first" };
+    }
+    if (current.type !== SlotTypeEco && current.type !== SlotTypeNotSet) {
+        return {
+            error: `the slot holds type ${current.type}, only eco mode slots (${SlotTypeEco}) and slots that were never set (${SlotTypeNotSet}) are written`,
+        };
+    }
+    const slot = { ...current, ...changes, type: SlotTypeEco };
+    const invalid = checkEcoSlotV2(slot);
+    const values = encodeEcoSlotV2(slot);
+    return invalid !== null
+        ? { error: invalid }
+        : {
+            values,
+            unchanged: values.join() === encodeEcoSlotV2(current).join(),
+            shown: JSON.stringify(slot),
+        };
 }

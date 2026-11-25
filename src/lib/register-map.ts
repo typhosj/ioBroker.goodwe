@@ -1207,8 +1207,7 @@ const registerGroups: Record<string, RegisterGroup> = {
 
   // Eco mode time slots of firmware before ARM 19 (EcoModeV1). Only the JSON
   // state of a slot is writable: control.ts writes the whole slot in one
-  // request, so the inverter never holds a half changed slot. Firmware with
-  // EcoModeV2 (47547) is refused there, nobody could test its writes yet.
+  // request, so the inverter never holds a half changed slot.
   settingsEcoMode: {
     name: "Settings.EcoMode",
     start: EcoSlotStarts[0],
@@ -1220,9 +1219,10 @@ const registerGroups: Record<string, RegisterGroup> = {
     ),
   },
 
-  // Eco mode time slots of firmware from ARM 19 (EcoModeV2), read only. The
-  // scheduler reads either this group or settingsEcoMode, and both fill the
-  // same slot states, so scripts do not depend on the firmware.
+  // Eco mode time slots of firmware from ARM 19 (EcoModeV2). The scheduler
+  // reads either this group or settingsEcoMode, and both fill the same slot
+  // states, so scripts do not depend on the firmware. control.ts picks the
+  // layout for a write by probing the firmware again.
   settingsEcoModeV2: {
     name: "Settings.EcoModeV2",
     start: EcoSlotV2Starts[0],
@@ -1272,7 +1272,10 @@ const optionalGroupConfigs: Record<string, string> = {
 };
 
 // Writable register entries by state id. Everything not listed here is refused
-// by the control path, whatever a script writes.
+// by the control path, whatever a script writes. The JSON state of an eco mode
+// slot is in settingsEcoMode and settingsEcoModeV2, and the later group wins
+// here: control.ts only takes the entry as the sign of a slot write and looks
+// up the address in the group of the layout it probed.
 const writableEntries: ReadonlyMap<string, RegisterEntry> = new Map(
   Object.values(registerGroups).flatMap((group) =>
     group.entries
@@ -1283,14 +1286,11 @@ const writableEntries: ReadonlyMap<string, RegisterEntry> = new Map(
 
 // Groups holding at least one writable register. Inverter control needs their
 // objects and their read-back, whatever the optional group switches say.
-// settingsEcoModeV2 has no writable register, but it shares the slot states
-// of settingsEcoMode: switched off while those stay, it would delete them.
-const writableGroups: ReadonlySet<string> = new Set([
-  ...Object.entries(registerGroups)
+const writableGroups: ReadonlySet<string> = new Set(
+  Object.entries(registerGroups)
     .filter(([, group]) => group.entries.some((item) => item.writable))
     .map(([groupName]) => groupName),
-  "settingsEcoModeV2",
-]);
+);
 
 /**
  * Returns the register group a state belongs to, or an empty string.
@@ -1401,8 +1401,8 @@ function ecoSlotEntries(slot: number, start: number): RegisterEntry[] {
 }
 
 /**
- * Returns the read-only entries of one EcoModeV2 slot, under the state ids of
- * the EcoModeV1 slot with the same number.
+ * Returns the entries of one EcoModeV2 slot, under the state ids of the
+ * EcoModeV1 slot with the same number.
  *
  * @param slot slot number, 1 to 4
  * @param start first register of the slot
@@ -1437,9 +1437,11 @@ function ecoSlotV2Entries(slot: number, start: number): RegisterEntry[] {
     }),
     // Bit 0 January to bit 11 December; 0 and 4095 every month.
     entry(start + 5, `${state}.Months`, `${model}.Months`, TYPE.U16),
+    // Written like the EcoModeV1 slot, see eco-mode.ts.
     entry(start, `${state}.Json`, `${model}.Json`, TYPE.ECO_SLOT_V2, {
       registers: EcoSlotV2Registers,
       role: "json",
+      writable: { min: 0, max: 0xffff },
     }),
   ];
 }

@@ -35,6 +35,8 @@ import {
   type EcoSlot,
   ecoSlotFromJson,
   encodeEcoSlot,
+  encodeEcoSlotV2,
+  mergeEcoSlot,
   parseEcoSlotChanges,
   type ProbeResult,
 } from "../src/lib/eco-mode";
@@ -171,9 +173,14 @@ describe("register map", () => {
     for (const entry of writableEntries.values()) {
       // Only an eco slot has an encoder for more than one register; every
       // other writable value has to fit into a single register.
+      const registers: Record<string, number> = {
+        [TYPE.ECO_SLOT]: 4,
+        [TYPE.ECO_SLOT_V2]: 6,
+      };
+
       assert.equal(
         entry.registers,
-        entry.type === TYPE.ECO_SLOT ? 4 : 1,
+        registers[entry.type] ?? 1,
         `${entry.state} spans registers`,
       );
       assert.ok(entry.writable && entry.writable.min < entry.writable.max);
@@ -2575,6 +2582,10 @@ describe("inverter control", () => {
       for (const value of [
         "not json",
         '{"Power":-20}',
+        // Only the newer slot layout has these.
+        '{"soc":80}',
+        '{"months":0}',
+        '{"type":0}',
         '{"start":"24:00"}',
         '{"power":101}',
         "[]",
@@ -2594,49 +2605,219 @@ describe("inverter control", () => {
       }
     });
 
-    it("refuses a slot on firmware with the newer eco mode registers and reads those back", async () => {
-      for (const value of ['{"enabled":false}', "not json"]) {
+    describe("on firmware with the newer eco mode registers", () => {
+      // Slot 2 as an ARM 29 firmware holds it after SolarGo: eco, on.
+      const storedV2 = {
+        start: "02:00",
+        end: "05:00",
+        power: -100,
+        days: 127,
+        enabled: true,
+        type: 0,
+        soc: 90,
+        months: 0,
+      };
+      const v2State =
+        (slot: Record<string, unknown>) =>
+        (state: string): ioBroker.StateValue =>
+          state === "Settings.EcoMode.Slot2.Json" ? JSON.stringify(slot) : null;
+
+      it("merges a partial slot and writes all six registers at once", async () => {
         const control = createControlContext(true, {
           probe: "answered",
+          stored: v2State(storedV2),
+        });
+
+        await writeSlot(control, '{"enabled":false,"power":-20,"soc":80}');
+
+        assert.deepEqual(control.probes, [47547]);
+        assert.deepEqual(control.multiWrites, [
+          {
+            start: 47553,
+            values: [0x0200, 0x0500, 0x007f, 0xffec, 0x0050, 0x0000],
+          },
+        ]);
+        // 47515 answers there too, but has no slot type.
+        assert.deepEqual(control.reads, [
+          "settingsEcoModeV2",
+          "settingsEcoModeV2",
+        ]);
+        assert.deepEqual(control.updated, ["Settings.EcoModeV2"]);
+      });
+
+      it("turns a slot that was never set into an eco mode slot", async () => {
+        const control = createControlContext(true, {
+          probe: "answered",
+          stored: v2State({
+            start: "18:19",
+            end: "18:19",
+            power: 100,
+            days: 0,
+            enabled: false,
+            type: 85,
+            soc: 100,
+            months: 0,
+          }),
+          readBack: true,
+        });
+
+        await writeSlot(
+          control,
+          '{"start":"01:00","end":"05:00","power":-50,"days":127,"enabled":true,"soc":80}',
+        );
+
+        // On/off byte 0xFF: eco mode (type 0), switched on.
+        assert.deepEqual(control.multiWrites, [
+          {
+            start: 47553,
+            values: [0x0100, 0x0500, 0xff7f, 0xffce, 0x0050, 0x0000],
+          },
+        ]);
+      });
+
+      it("refuses a slot of another type and reads the newer slots back", async () => {
+        for (const type of [1, 3, 6, 128]) {
+          const control = createControlContext(true, {
+            probe: "answered",
+            stored: v2State({ ...storedV2, type }),
+          });
+
+          await writeSlot(control, '{"enabled":false}');
+
+          assert.deepEqual(control.multiWrites, [], String(type));
+          assert.deepEqual(
+            control.reads,
+            ["settingsEcoModeV2", "settingsEcoModeV2"],
+            String(type),
+          );
+          assert.deepEqual(
+            control.updated,
+            ["Settings.EcoModeV2"],
+            String(type),
+          );
+        }
+      });
+
+      it("refuses invalid JSON and reads the newer slots back", async () => {
+        for (const value of [
+          "not json",
+          '{"soc":101}',
+          '{"soc":-1}',
+          '{"months":4096}',
+          '{"type":3}',
+          '{"type":85}',
+          '{"Soc":80}',
+          '{"power":101}',
+          '{"days":128}',
+          '{"start":"24:00"}',
+        ]) {
+          const control = createControlContext(true, {
+            probe: "answered",
+            stored: v2State(storedV2),
+          });
+
+          await writeSlot(control, value);
+
+          assert.deepEqual(control.multiWrites, [], value);
+          // 47515 shows slots that were never set as switched on.
+          assert.deepEqual(control.reads, ["settingsEcoModeV2"], value);
+          assert.deepEqual(control.updated, ["Settings.EcoModeV2"], value);
+        }
+      });
+
+      it("skips a slot the inverter already holds", async () => {
+        const control = createControlContext(true, {
+          probe: "answered",
+          stored: v2State(storedV2),
+        });
+
+        // The JSON a script read, sent back unchanged.
+        await writeSlot(control, JSON.stringify(storedV2));
+
+        assert.deepEqual(control.multiWrites, []);
+        assert.deepEqual(control.reads, ["settingsEcoModeV2"]);
+        assert.deepEqual(control.updated, ["Settings.EcoModeV2"]);
+      });
+
+      it("acknowledges the written slot when the read back fails", async () => {
+        const control = createControlContext(true, {
+          probe: "answered",
+          stored: v2State(storedV2),
+        });
+        let reads = 0;
+
+        control.context.inverter.ReadGroup = (groupName: string) => {
+          control.reads.push(groupName);
+          return Promise.resolve(++reads === 1);
+        };
+
+        await writeSlot(control, '{"enabled":false}');
+
+        assert.equal(control.multiWrites.length, 1);
+        assert.deepEqual(control.acknowledged, [
+          {
+            id: "Settings.EcoMode.Slot2.Json",
+            value: JSON.stringify({ ...storedV2, enabled: false }),
+            ack: true,
+          },
+        ]);
+      });
+    });
+
+    describe("when the eco mode registers could not be checked", () => {
+      it("refuses the slot and reads back the older slots on EcoModeV1 firmware", async () => {
+        const control = createControlContext(true, {
+          probe: "lost",
           stored: slotState(stored),
         });
 
-        await writeSlot(control, value);
+        control.context.inverter.ReadGroup = (groupName: string) => {
+          control.reads.push(groupName);
+          // EcoModeV1 firmware rejects 47547.
+          return Promise.resolve(groupName === "settingsEcoMode");
+        };
 
-        assert.deepEqual(control.multiWrites, [], value);
-        // 47515 has no slot type and shows unset slots as switched on.
-        assert.deepEqual(control.reads, ["settingsEcoModeV2"], value);
-        assert.deepEqual(control.updated, ["Settings.EcoModeV2"], value);
-        assert.deepEqual(control.acknowledged, [], value);
-      }
-    });
+        await writeSlot(control, '{"enabled":false}');
 
-    it("leaves the refused slot to the next poll when the newer slots cannot be read", async () => {
-      const control = createControlContext(true, {
-        probe: "answered",
-        readBack: false,
+        assert.deepEqual(control.multiWrites, []);
+        assert.deepEqual(control.reads, [
+          "settingsEcoModeV2",
+          "settingsEcoMode",
+        ]);
+        assert.deepEqual(control.updated, ["Settings.EcoMode"]);
       });
 
-      await writeSlot(control, '{"enabled":false}');
+      it("refuses the slot and reads back the newer slots on EcoModeV2 firmware", async () => {
+        const control = createControlContext(true, {
+          probe: "lost",
+          stored: slotState(stored),
+        });
 
-      assert.deepEqual(control.multiWrites, []);
-      assert.deepEqual(control.reads, ["settingsEcoModeV2"]);
-      assert.deepEqual(control.updated, []);
-      assert.deepEqual(control.acknowledged, []);
-    });
+        await writeSlot(control, '{"enabled":false}');
 
-    it("refuses a slot when the eco mode registers could not be checked", async () => {
-      const control = createControlContext(true, {
-        probe: "lost",
-        stored: slotState(stored),
+        assert.deepEqual(control.multiWrites, []);
+        // 47515 would show slots that were never set as switched on.
+        assert.deepEqual(control.reads, ["settingsEcoModeV2"]);
+        assert.deepEqual(control.updated, ["Settings.EcoModeV2"]);
       });
 
-      await writeSlot(control, '{"enabled":false}');
+      it("leaves the states alone when neither read answers", async () => {
+        const control = createControlContext(true, {
+          probe: "lost",
+          readBack: false,
+          stored: slotState(stored),
+        });
 
-      assert.deepEqual(control.multiWrites, []);
-      // Most likely EcoModeV1 on a weak link: the slot as the inverter holds it.
-      assert.deepEqual(control.reads, ["settingsEcoMode"]);
-      assert.deepEqual(control.updated, ["Settings.EcoMode"]);
+        await writeSlot(control, '{"enabled":false}');
+
+        assert.deepEqual(control.multiWrites, []);
+        assert.deepEqual(control.reads, [
+          "settingsEcoModeV2",
+          "settingsEcoMode",
+        ]);
+        assert.deepEqual(control.updated, []);
+        assert.deepEqual(control.acknowledged, []);
+      });
     });
 
     it("refuses a slot it could not read first", async () => {
@@ -3124,6 +3305,200 @@ describe("eco mode slots", () => {
     }
   });
 
+  it("encodes a newer slot back into the registers it came from", () => {
+    const charge = Buffer.from("0000173bff7fffce00500fff", "hex");
+
+    for (const bytes of [v2Off, v2NotSet, charge]) {
+      const registers = Array.from({ length: 6 }, (_, index) =>
+        bytes.readUInt16BE(index * 2),
+      );
+
+      assert.deepEqual(
+        encodeEcoSlotV2(decodeEcoSlotV2(bytes)),
+        registers,
+        bytes.toString("hex"),
+      );
+    }
+  });
+
+  it("accepts the fields of the newer slots up to their boundaries", () => {
+    assert.deepEqual(
+      parseEcoSlotChanges('{"soc":0,"months":0,"type":0}', true),
+      { changes: { soc: 0, months: 0, type: 0 } },
+    );
+    assert.deepEqual(parseEcoSlotChanges('{"soc":100,"months":4095}', true), {
+      changes: { soc: 100, months: 4095 },
+    });
+    // The fields both layouts share keep their limits on the newer one.
+    assert.deepEqual(
+      parseEcoSlotChanges('{"power":-100,"days":0,"start":""}', true),
+      { changes: { power: -100, days: 0, start: "" } },
+    );
+    assert.deepEqual(
+      parseEcoSlotChanges('{"power":100,"days":127,"end":"23:59"}', true),
+      { changes: { power: 100, days: 127, end: "23:59" } },
+    );
+
+    for (const value of [
+      '{"power":101}',
+      '{"power":-101}',
+      '{"power":1.5}',
+      '{"days":128}',
+      '{"days":-1}',
+      '{"start":"24:00"}',
+      '{"end":"5:00"}',
+    ]) {
+      assert.ok("error" in parseEcoSlotChanges(value, true), value);
+    }
+
+    for (const value of [
+      '{"soc":101}',
+      '{"soc":-1}',
+      '{"soc":50.5}',
+      '{"soc":"80"}',
+      '{"months":4096}',
+      '{"months":-1}',
+      '{"months":1.5}',
+      '{"type":1}',
+      '{"type":85}',
+      '{"type":"0"}',
+      '{"Soc":80}',
+    ]) {
+      assert.ok("error" in parseEcoSlotChanges(value, true), value);
+    }
+    // The older layout has no such fields.
+    for (const value of ['{"soc":80}', '{"months":0}', '{"type":0}']) {
+      assert.ok("error" in parseEcoSlotChanges(value), value);
+    }
+  });
+
+  it("writes only eco mode slots and slots that were never set", () => {
+    const eco = JSON.stringify(decodeEcoSlotV2(v2Off));
+
+    const written = mergeEcoSlot(eco, { enabled: true, days: 127 }, true);
+
+    assert.deepEqual(written, {
+      values: [0x0000, 0x0000, 0xff7f, 0x0000, 0x0064, 0x0000],
+      unchanged: false,
+      shown:
+        '{"start":"00:00","end":"00:00","power":0,"days":127,"enabled":true,"type":0,"soc":100,"months":0}',
+    });
+    assert.deepEqual(mergeEcoSlot(eco, {}, true), {
+      values: [0x0000, 0x0000, 0x0000, 0x0000, 0x0064, 0x0000],
+      unchanged: true,
+      shown: eco,
+    });
+
+    // A slot that was never set becomes an eco mode slot, even unchanged.
+    const notSetJson = JSON.stringify(decodeEcoSlotV2(v2NotSet));
+    const notSet = mergeEcoSlot(notSetJson, {}, true);
+
+    assert.ok("values" in notSet && !notSet.unchanged);
+    assert.equal("values" in notSet && notSet.values[2], 0x0000);
+
+    // The registers the live test on ARM 29 read back after these writes.
+    for (const [changes, registers] of [
+      [{ enabled: false }, [0x1213, 0x1213, 0x0000, 0x0064, 0x0064, 0x0000]],
+      // Hour 48 marks a slot without time, as marcelblijleven encodes it.
+      [
+        { start: "", end: "" },
+        [0x3000, 0x3000, 0x0000, 0x0064, 0x0064, 0x0000],
+      ],
+    ] as const) {
+      const merged = mergeEcoSlot(notSetJson, changes, true);
+
+      assert.deepEqual(
+        "values" in merged && merged.values,
+        registers,
+        JSON.stringify(changes),
+      );
+    }
+
+    for (const type of [1, 2, 3, 4, 5, 6, 9, 128]) {
+      const slot = { ...decodeEcoSlotV2(v2Off), type };
+
+      assert.match(
+        (mergeEcoSlot(JSON.stringify(slot), {}, true) as { error: string })
+          .error,
+        /only eco mode slots/,
+        String(type),
+      );
+    }
+
+    // Broken stored values and a slot that could not be read are not merged.
+    assert.match(
+      (
+        mergeEcoSlot(
+          JSON.stringify({ ...decodeEcoSlotV2(v2Off), soc: 200 }),
+          {},
+          true,
+        ) as { error: string }
+      ).error,
+      /soc/,
+    );
+    assert.match(
+      (
+        mergeEcoSlot(
+          JSON.stringify({ ...decodeEcoSlotV2(v2Off), months: 0xffff }),
+          {},
+          true,
+        ) as { error: string }
+      ).error,
+      /months/,
+    );
+    // V1 JSON lacks type, soc and months.
+    assert.deepEqual(
+      mergeEcoSlot(
+        '{"start":"","end":"","power":100,"days":0,"enabled":false}',
+        {},
+        true,
+      ),
+      { error: "could not read the slot first" },
+    );
+    assert.deepEqual(mergeEcoSlot(null, {}, true), {
+      error: "could not read the slot first",
+    });
+    // Enabled without a day still never acts.
+    assert.match(
+      (mergeEcoSlot(eco, { enabled: true }, true) as { error: string }).error,
+      /at least one day/,
+    );
+    // Neither does a slot without times, on either end.
+    for (const changes of [
+      { start: "", end: "", days: 127, enabled: true },
+      { start: "", days: 127, enabled: true },
+      { end: "", days: 127, enabled: true },
+    ]) {
+      assert.match(
+        (mergeEcoSlot(eco, changes, true) as { error: string }).error,
+        /start and end have to be set/,
+        JSON.stringify(changes),
+      );
+    }
+  });
+
+  it("writes six registers in one request", async function () {
+    this.timeout(10000);
+
+    const requests: Buffer[] = [];
+    const inverter = createInverter(
+      new RecordingSocket(requests, () => buildWriteResponse(47553, 6, 0x10)),
+    );
+
+    assert.equal(
+      await inverter.WriteRegisters(
+        47553,
+        [0x0100, 0x0500, 0xff7f, 0xffce, 0x0050, 0x0000],
+      ),
+      true,
+    );
+    assert.deepEqual(
+      Array.from(requests[0].subarray(0, 7)),
+      [0xf7, 0x10, 0xb9, 0xc1, 0x00, 0x06, 0x0c],
+    );
+    assert.equal(requests[0].length, 7 + 12 + 2);
+  });
+
   it("reads the newer slots into the same states as the older ones", async () => {
     const socket = new FakeSocket(() =>
       buildRegisterResponse(registerGroups.settingsEcoModeV2, (response) => {
@@ -3158,14 +3533,19 @@ describe("eco mode slots", () => {
     assert.equal(slots.Slot4.Start, "18:19");
     assert.equal(optionalGroupConfigs.settingsEcoModeV2, "pollSettings");
 
-    // Same state ids, so scripts do not depend on the firmware; no write.
+    // Same state ids, so scripts do not depend on the firmware; as on V1 only
+    // the JSON state is writable.
     const v1States = registerGroups.settingsEcoMode.entries.map(
       (item) => item.state,
     );
 
     for (const item of registerGroups.settingsEcoModeV2.entries) {
-      assert.match(item.state, /^Settings.EcoMode.Slot[1-4]./);
-      assert.equal(item.writable, undefined, item.state);
+      assert.match(item.state, /^Settings\.EcoMode\.Slot[1-4]\./);
+      assert.equal(
+        item.writable !== undefined,
+        item.state.endsWith(".Json"),
+        item.state,
+      );
     }
     for (const state of v1States) {
       assert.ok(
@@ -3264,7 +3644,7 @@ describe("eco mode slots", () => {
       new RecordingSocket(requests, () => buildWriteResponse(47519, 1, 0x10)),
     );
 
-    for (const values of [[], [0x10000], [-1], [1.5], new Array(5).fill(0)]) {
+    for (const values of [[], [0x10000], [-1], [1.5], new Array(7).fill(0)]) {
       assert.equal(
         await inverter.WriteRegisters(47519, values as number[]),
         false,
