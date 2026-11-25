@@ -277,27 +277,33 @@ async function sendEcoSlotWrite(context, stateId, entry, stateValue) {
         context.adapter.log.warn(`Ignoring write to ${stateId}: ${reason}`);
         await readBack(context, stateId);
     };
-    const parsed = (0, eco_mode_1.parseEcoSlotChanges)(stateValue);
-    if ("error" in parsed) {
-        await refuse(parsed.error);
-        return;
-    }
     // Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2). Whether it still
-    // follows 47515 is unknown, so it gets no write it might misread. Checked
-    // per write: a firmware update does not have to drop the connection.
+    // takes writes to 47515 is unknown, and nobody could test writes to 47547
+    // yet, so it gets no write. Checked per write, as a firmware update does not
+    // have to drop the connection, and before the JSON check, so that a refusal
+    // never reads back 47515: that layout has no slot type and shows slots that
+    // were never set as switched on.
     const probe = await context.inverter.ProbeRegisters(eco_mode_1.EcoModeV2Probe.start, eco_mode_1.EcoModeV2Probe.count);
     if (context.inverter.Closed) {
         return;
     }
     if (probe === "answered") {
-        context.adapter.log.warn(`Ignoring write to ${stateId}: this firmware uses the newer eco mode registers, which the adapter does not write`);
-        // A read back would put the values of 47515 on the states again, and on
-        // this firmware they are no slots: the scheduler keeps the states empty.
-        await context.states.Acknowledge(stateId, null);
+        context.adapter.log.warn(`Ignoring write to ${stateId}: this firmware uses the newer eco mode registers, which the adapter does not write yet`);
+        const group = register_map_1.registerGroups.settingsEcoModeV2;
+        if (await context.inverter.ReadGroup("settingsEcoModeV2", controlReadOptions)) {
+            await context.states.UpdateStatesFromRegisterMap(group);
+        }
         return;
     }
+    // Known limit: on firmware from ARM 19 this read back shows the slots of
+    // 47515 until the next poll reads 47547 again.
     if (probe === "lost") {
         await refuse("could not check which eco mode registers the firmware uses");
+        return;
+    }
+    const parsed = (0, eco_mode_1.parseEcoSlotChanges)(stateValue);
+    if ("error" in parsed) {
+        await refuse(parsed.error);
         return;
     }
     const group = register_map_1.registerGroups.settingsEcoMode;

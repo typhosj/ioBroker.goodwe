@@ -1,6 +1,11 @@
 "use strict";
 
-import { EcoSlotRegisters, EcoSlotStarts } from "./eco-mode";
+import {
+  EcoSlotRegisters,
+  EcoSlotStarts,
+  EcoSlotV2Registers,
+  EcoSlotV2Starts,
+} from "./eco-mode";
 import { valueStates, type ValueStateMap } from "./status-definitions";
 
 const TYPE = {
@@ -15,6 +20,12 @@ const TYPE = {
   TIME: "TIME",
   // One whole eco mode slot, shown as JSON (see src/lib/eco-mode.ts).
   ECO_SLOT: "ECO_SLOT",
+  // One whole EcoModeV2 slot, shown as JSON (see src/lib/eco-mode.ts).
+  ECO_SLOT_V2: "ECO_SLOT_V2",
+  // High byte of the on/off register of an EcoModeV2 slot, decoded to the
+  // slot type or to 1 while the slot is on.
+  SLOT_TYPE: "SLOT_TYPE",
+  SLOT_ON: "SLOT_ON",
 } as const;
 
 type RegisterType = (typeof TYPE)[keyof typeof TYPE];
@@ -1197,7 +1208,7 @@ const registerGroups: Record<string, RegisterGroup> = {
   // Eco mode time slots of firmware before ARM 19 (EcoModeV1). Only the JSON
   // state of a slot is writable: control.ts writes the whole slot in one
   // request, so the inverter never holds a half changed slot. Firmware with
-  // EcoModeV2 (47547) is refused there, nobody could test its slots yet.
+  // EcoModeV2 (47547) is refused there, nobody could test its writes yet.
   settingsEcoMode: {
     name: "Settings.EcoMode",
     start: EcoSlotStarts[0],
@@ -1206,6 +1217,20 @@ const registerGroups: Record<string, RegisterGroup> = {
     target: "Settings",
     entries: EcoSlotStarts.flatMap((start, index) =>
       ecoSlotEntries(index + 1, start),
+    ),
+  },
+
+  // Eco mode time slots of firmware from ARM 19 (EcoModeV2), read only. The
+  // scheduler reads either this group or settingsEcoMode, and both fill the
+  // same slot states, so scripts do not depend on the firmware.
+  settingsEcoModeV2: {
+    name: "Settings.EcoModeV2",
+    start: EcoSlotV2Starts[0],
+    count: EcoSlotV2Starts.length * EcoSlotV2Registers,
+    channel: "Settings",
+    target: "Settings",
+    entries: EcoSlotV2Starts.flatMap((start, index) =>
+      ecoSlotV2Entries(index + 1, start),
     ),
   },
 
@@ -1242,6 +1267,7 @@ const optionalGroupConfigs: Record<string, string> = {
   settingsEms: "pollSettings",
   settingsWorkMode: "pollSettings",
   settingsEcoMode: "pollSettings",
+  settingsEcoModeV2: "pollSettings",
   settingsLoadControl: "pollSettings",
 };
 
@@ -1257,11 +1283,14 @@ const writableEntries: ReadonlyMap<string, RegisterEntry> = new Map(
 
 // Groups holding at least one writable register. Inverter control needs their
 // objects and their read-back, whatever the optional group switches say.
-const writableGroups: ReadonlySet<string> = new Set(
-  Object.entries(registerGroups)
+// settingsEcoModeV2 has no writable register, but it shares the slot states
+// of settingsEcoMode: switched off while those stay, it would delete them.
+const writableGroups: ReadonlySet<string> = new Set([
+  ...Object.entries(registerGroups)
     .filter(([, group]) => group.entries.some((item) => item.writable))
     .map(([groupName]) => groupName),
-);
+  "settingsEcoModeV2",
+]);
 
 /**
  * Returns the register group a state belongs to, or an empty string.
@@ -1323,7 +1352,12 @@ function entry(
  * @param type register type
  */
 function isTextType(type: RegisterType): boolean {
-  return type === TYPE.STRING || type === TYPE.TIME || type === TYPE.ECO_SLOT;
+  return (
+    type === TYPE.STRING ||
+    type === TYPE.TIME ||
+    type === TYPE.ECO_SLOT ||
+    type === TYPE.ECO_SLOT_V2
+  );
 }
 
 /**
@@ -1362,6 +1396,50 @@ function ecoSlotEntries(slot: number, start: number): RegisterEntry[] {
       registers: EcoSlotRegisters,
       role: "json",
       writable: { min: 0, max: 0xffff },
+    }),
+  ];
+}
+
+/**
+ * Returns the read-only entries of one EcoModeV2 slot, under the state ids of
+ * the EcoModeV1 slot with the same number.
+ *
+ * @param slot slot number, 1 to 4
+ * @param start first register of the slot
+ */
+function ecoSlotV2Entries(slot: number, start: number): RegisterEntry[] {
+  const state = `Settings.EcoMode.Slot${slot}`;
+  const model = `EcoMode.Slot${slot}`;
+
+  return [
+    entry(start, `${state}.Start`, `${model}.Start`, TYPE.TIME, {
+      role: "text",
+    }),
+    entry(start + 1, `${state}.End`, `${model}.End`, TYPE.TIME, {
+      role: "text",
+    }),
+    entry(start + 2, `${state}.Type`, `${model}.Type`, TYPE.SLOT_TYPE, {
+      states: valueStates.ecoSlotType,
+    }),
+    entry(start + 2, `${state}.Enabled`, `${model}.Enabled`, TYPE.SLOT_ON, {
+      states: valueStates.ecoSlotEnabled,
+    }),
+    // Bit 0 Sunday to bit 6 Saturday, 127 every day.
+    entry(start + 2, `${state}.Days`, `${model}.Days`, TYPE.BYTE, {
+      byteOffset: 1,
+    }),
+    // In % for an eco slot; negative charges the battery from the grid.
+    entry(start + 3, `${state}.Power`, `${model}.Power`, TYPE.S16, {
+      unit: "%",
+    }),
+    entry(start + 4, `${state}.Soc`, `${model}.Soc`, TYPE.S16, {
+      unit: "%",
+    }),
+    // Bit 0 January to bit 11 December; 0 and 4095 every month.
+    entry(start + 5, `${state}.Months`, `${model}.Months`, TYPE.U16),
+    entry(start, `${state}.Json`, `${model}.Json`, TYPE.ECO_SLOT_V2, {
+      registers: EcoSlotV2Registers,
+      role: "json",
     }),
   ];
 }

@@ -30,13 +30,16 @@ const OptionalGroupIntervalSeconds = 30;
 
 // Settings a script or the GoodWe app can change at any moment. Behind the
 // round robin slot they were minutes old, so they are read on the live cycle.
-// All of them are small: nine, four, one and sixteen registers.
+// All of them are small: nine, four, one and sixteen or 24 registers. Only
+// one of the two eco mode groups is read, depending on the firmware.
 const SettingsGroups = [
   "settingsBattery",
   "settingsEms",
   "settingsWorkMode",
   "settingsEcoMode",
+  "settingsEcoModeV2",
 ];
+const EcoModeGroups = ["settingsEcoMode", "settingsEcoModeV2"];
 
 interface SchedulerAdapter {
   config: ioBroker.AdapterConfig;
@@ -112,9 +115,9 @@ class GoodWePollScheduler {
   private reconnectDelay = 0;
   private reconnectSkips = 0;
   private deviceInfoRead = false;
-  // Whether the firmware keeps its eco mode slots in 47515 ff. (EcoModeV1),
-  // undefined until the probe got an answer on this connection.
-  private ecoModeV1: boolean | undefined;
+  // The eco mode group this firmware keeps its slots in, undefined until the
+  // probe got an answer on this connection.
+  private ecoModeGroup: string | undefined;
   private ecoProbeLost = 0;
   private optionalGroupIndex = 0;
   private scheduler: PollScheduler;
@@ -147,7 +150,7 @@ class GoodWePollScheduler {
         // A reconnect can mean a different inverter or new firmware, so the
         // static device data is read again once the connection is back.
         this.deviceInfoRead = false;
-        this.ecoModeV1 = undefined;
+        this.ecoModeGroup = undefined;
         this.ecoProbeLost = 0;
 
         if (this.reconnectSkips > 0) {
@@ -286,28 +289,35 @@ class GoodWePollScheduler {
    * Reads the enabled settings groups on the live cycle.
    */
   async UpdateSettings(): Promise<void> {
-    for (const groupName of SettingsGroups) {
-      if (
-        this.states.IsRegisterGroupEnabled(groupName) &&
-        (groupName !== "settingsEcoMode" || (await this.HasEcoModeV1()))
-      ) {
+    const enabled = SettingsGroups.filter((groupName) =>
+      this.states.IsRegisterGroupEnabled(groupName),
+    );
+    const ecoModeGroup = enabled.some((groupName) =>
+      EcoModeGroups.includes(groupName),
+    )
+      ? await this.EcoModeGroup()
+      : undefined;
+
+    for (const groupName of enabled) {
+      if (!EcoModeGroups.includes(groupName) || groupName === ecoModeGroup) {
         await this.ReadOptionalGroup(groupName);
       }
     }
   }
 
   /**
-   * Finds out once per connection whether the eco mode slots at 47515 mean
-   * anything on this firmware.
+   * Finds out once per connection which registers hold the eco mode slots.
    *
-   * Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2) and still
-   * answers 47515, with values that are no slots: a live GW10K-ET with ARM 29
-   * reported three enabled slots from 18:19 to 18:19 that the SolarGo app does
-   * not show. EcoModeV1 firmware rejects 47547.
+   * Firmware from ARM 19 keeps them at 47547 (EcoModeV2) and still answers
+   * 47515 with the same slots in the older layout, which has no room for the
+   * slot type: a live GW10K-ET with ARM 29 showed three slots that were never
+   * set as switched on there. EcoModeV1 firmware rejects 47547.
+   *
+   * @returns the register group to read, or undefined while it is unknown
    */
-  async HasEcoModeV1(): Promise<boolean> {
-    if (this.ecoModeV1 !== undefined) {
-      return this.ecoModeV1;
+  async EcoModeGroup(): Promise<string | undefined> {
+    if (this.ecoModeGroup !== undefined) {
+      return this.ecoModeGroup;
     }
 
     // Known limit: firmware that drops reads of 47547 instead of rejecting them
@@ -315,7 +325,7 @@ class GoodWePollScheduler {
     // lost answers on a weak link from costing a V1 inverter its slots, and a
     // silent firmware from stalling every cycle on the probe's timeouts.
     if (this.ecoProbeLost >= 3) {
-      return false;
+      return undefined;
     }
 
     const probe = await this.inverter.ProbeRegisters(
@@ -325,21 +335,19 @@ class GoodWePollScheduler {
 
     if (probe === "lost") {
       this.ecoProbeLost++;
-      return false;
+      return undefined;
     }
 
-    this.ecoModeV1 = probe === "rejected";
+    this.ecoModeGroup =
+      probe === "rejected" ? "settingsEcoMode" : "settingsEcoModeV2";
 
-    if (!this.ecoModeV1) {
+    if (probe === "answered") {
       this.adapter.log.info(
-        "This firmware uses the newer eco mode registers, the eco mode slot states stay empty",
+        "This firmware uses the newer eco mode registers, the eco mode slots are read from 47547 and cannot be written",
       );
-      // Values from before a firmware update would otherwise stay on the
-      // states and look like active slots.
-      await this.states.ClearRegisterGroup(registerGroups.settingsEcoMode);
     }
 
-    return this.ecoModeV1;
+    return this.ecoModeGroup;
   }
 
   /**

@@ -1,21 +1,29 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EcoSlotStarts = exports.EcoSlotRegisters = exports.EcoModeV2Probe = void 0;
+exports.EcoSlotV2Starts = exports.EcoSlotV2Registers = exports.EcoSlotStarts = exports.EcoSlotRegisters = exports.EcoModeV2Probe = void 0;
 exports.checkEcoSlot = checkEcoSlot;
 exports.decodeEcoSlot = decodeEcoSlot;
+exports.decodeEcoSlotV2 = decodeEcoSlotV2;
 exports.decodeEcoTime = decodeEcoTime;
+exports.decodeSlotType = decodeSlotType;
 exports.ecoSlotFromJson = ecoSlotFromJson;
 exports.ecoSlotJson = ecoSlotJson;
 exports.encodeEcoSlot = encodeEcoSlot;
+exports.isSlotOn = isSlotOn;
 exports.parseEcoSlotChanges = parseEcoSlotChanges;
 const EcoSlotStarts = [47515, 47519, 47523, 47527];
 exports.EcoSlotStarts = EcoSlotStarts;
 const EcoSlotRegisters = 4;
 exports.EcoSlotRegisters = EcoSlotRegisters;
+const EcoSlotV2Starts = [47547, 47553, 47559, 47565];
+exports.EcoSlotV2Starts = EcoSlotV2Starts;
+const EcoSlotV2Registers = 6;
+exports.EcoSlotV2Registers = EcoSlotV2Registers;
 // marcelblijleven/goodwe reads here to tell EcoModeV2 firmware (ARM 19 and
 // newer) apart; EcoModeV1 firmware rejects the address.
 const EcoModeV2Probe = { start: 47547, count: 6 };
 exports.EcoModeV2Probe = EcoModeV2Probe;
+const SlotTypeNotSet = 85;
 const UnsetHour = 48;
 const AllDays = 0x7f;
 // Power in % of the rated power, both directions.
@@ -63,6 +71,59 @@ function decodeEcoSlot(bytes) {
         days: data[7],
         // marcelblijleven/goodwe counts everything but 0 as on.
         enabled: data[6] !== 0,
+    };
+}
+/**
+ * Returns the on/off byte of a V2 slot as a signed number.
+ *
+ * @param onOff high byte of the third slot register
+ */
+function signedSlotByte(onOff) {
+    return onOff > 0x7f ? onOff - 0x100 : onOff;
+}
+/**
+ * Reports whether the on/off byte of a V2 slot switches it on.
+ *
+ * @param onOff high byte of the third slot register
+ */
+function isSlotOn(onOff) {
+    const value = signedSlotByte(onOff);
+    return value > -10 && value < 0;
+}
+/**
+ * Returns what a V2 slot is used for, from its on/off byte.
+ *
+ * The byte holds the type while the slot is off and -1 - type while it is on:
+ * 0 eco mode, 1 dry contact load, 2 dry contact smart load, 3 peak shaving,
+ * 4 backup mode, 5 smart charge, 6 eco mode on the 745 platform. 85 marks a
+ * slot that was never set. Any other byte is returned as it is, so a value
+ * nobody knows yet stays visible instead of turning into a known type.
+ *
+ * @param onOff high byte of the third slot register
+ */
+function decodeSlotType(onOff) {
+    const value = signedSlotByte(onOff);
+    if (isSlotOn(onOff)) {
+        return -1 - value;
+    }
+    return (value >= 0 && value < 10) || value === SlotTypeNotSet ? value : onOff;
+}
+/**
+ * Decodes the six registers of one V2 slot.
+ *
+ * @param bytes the twelve register bytes of the slot
+ */
+function decodeEcoSlotV2(bytes) {
+    const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return {
+        start: decodeEcoTime(data.readUInt16BE(0)),
+        end: decodeEcoTime(data.readUInt16BE(2)),
+        power: data.readInt16BE(6),
+        days: data[5],
+        enabled: isSlotOn(data[4]),
+        type: decodeSlotType(data[4]),
+        soc: data.readInt16BE(8),
+        months: data.readUInt16BE(10),
     };
 }
 /**

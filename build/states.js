@@ -373,17 +373,6 @@ class GoodWeStateManager {
         }
     }
     /**
-     * Empties the states of a register group whose registers mean nothing on
-     * this inverter.
-     *
-     * @param group register group
-     */
-    async ClearRegisterGroup(group) {
-        for (const item of group.entries) {
-            await this.Write(item.state, null);
-        }
-    }
-    /**
      * Returns the value the inverter reported for a register at its last read.
      *
      * @param group register group the entry belongs to

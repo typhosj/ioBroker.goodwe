@@ -449,6 +449,15 @@ class GoodWeUdp {
             case register_map_1.TYPE.ECO_SLOT:
                 value = (0, eco_mode_1.ecoSlotJson)((0, eco_mode_1.decodeEcoSlot)(data.subarray(offset, offset + item.registers * 2)));
                 break;
+            case register_map_1.TYPE.ECO_SLOT_V2:
+                value = JSON.stringify((0, eco_mode_1.decodeEcoSlotV2)(data.subarray(offset, offset + item.registers * 2)));
+                break;
+            case register_map_1.TYPE.SLOT_TYPE:
+                value = (0, eco_mode_1.decodeSlotType)(data[offset]);
+                break;
+            case register_map_1.TYPE.SLOT_ON:
+                value = (0, eco_mode_1.isSlotOn)(data[offset]) ? 1 : 0;
+                break;
             default:
                 value = this.#GetUintFromByteArray(data, offset, 2);
                 break;

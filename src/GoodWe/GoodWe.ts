@@ -3,8 +3,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { clampNumber, type Transport } from "../lib/config";
 import {
   decodeEcoSlot,
+  decodeEcoSlotV2,
   decodeEcoTime,
+  decodeSlotType,
   ecoSlotJson,
+  isSlotOn,
   type ProbeResult,
 } from "../lib/eco-mode";
 import { errorMessage, ModbusExceptionError } from "../lib/errors";
@@ -608,6 +611,17 @@ export class GoodWeUdp {
         value = ecoSlotJson(
           decodeEcoSlot(data.subarray(offset, offset + item.registers * 2)),
         );
+        break;
+      case TYPE.ECO_SLOT_V2:
+        value = JSON.stringify(
+          decodeEcoSlotV2(data.subarray(offset, offset + item.registers * 2)),
+        );
+        break;
+      case TYPE.SLOT_TYPE:
+        value = decodeSlotType(data[offset]);
+        break;
+      case TYPE.SLOT_ON:
+        value = isSlotOn(data[offset]) ? 1 : 0;
         break;
       default:
         value = this.#GetUintFromByteArray(data, offset, 2);

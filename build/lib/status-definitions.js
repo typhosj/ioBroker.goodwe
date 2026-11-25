@@ -51,6 +51,17 @@ const valueStates = {
         0: "Off",
         1: "On",
     },
+    // EcoModeV2 slot types, see decodeSlotType() in eco-mode.ts.
+    ecoSlotType: {
+        0: "Eco mode",
+        1: "Dry contact load",
+        2: "Dry contact smart load",
+        3: "Peak shaving",
+        4: "Backup mode",
+        5: "Smart charge",
+        6: "Eco mode (745 platform)",
+        85: "Not set",
+    },
     gridExport: {
         0: "Disabled",
         1: "Enabled",
