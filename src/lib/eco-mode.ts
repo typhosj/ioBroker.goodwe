@@ -26,8 +26,15 @@ const EcoSlotRegisters = 4;
 // newer) apart; EcoModeV1 firmware rejects the address.
 const EcoModeV2Probe = { start: 47547, count: 6 } as const;
 
+// What a probe read of a register block learned, see
+// GoodWeUdp.ProbeRegisters(): "rejected" is a Modbus exception, "lost" no
+// answer at all.
+type ProbeResult = "answered" | "rejected" | "lost";
+
 const UnsetHour = 48;
 const AllDays = 0x7f;
+// Power in % of the rated power, both directions.
+const MaxPower = 100;
 const Fields = ["start", "end", "power", "days", "enabled"] as const;
 
 /**
@@ -164,14 +171,20 @@ function parseEcoSlotChanges(
     }
   }
 
+  // "" takes the time off the slot, as SolarGo leaves unused slots;
+  // checkEcoSlot() refuses it on a slot that stays enabled.
   for (const key of ["start", "end"] as const) {
-    if (key in changes && !isTime(changes[key])) {
-      return { error: `${key} has to be "HH:MM" from 00:00 to 23:59` };
+    if (key in changes && changes[key] !== "" && !isTime(changes[key])) {
+      return {
+        error: `${key} has to be "HH:MM" from 00:00 to 23:59, or "" for no time`,
+      };
     }
   }
 
-  if ("power" in changes && !isInRange(changes.power, -100, 100)) {
-    return { error: "power has to be a whole number from -100 to 100" };
+  if ("power" in changes && !isInRange(changes.power, -MaxPower, MaxPower)) {
+    return {
+      error: `power has to be a whole number from -${MaxPower} to ${MaxPower}`,
+    };
   }
 
   if ("days" in changes && !isInRange(changes.days, 0, AllDays)) {
@@ -206,7 +219,7 @@ function checkEcoSlot(slot: EcoSlot): string | null {
     }
   }
 
-  if (!isInRange(slot.power, -100, 100)) {
+  if (!isInRange(slot.power, -MaxPower, MaxPower)) {
     return `the inverter holds an invalid power ${slot.power}`;
   }
 
@@ -216,14 +229,56 @@ function checkEcoSlot(slot: EcoSlot): string | null {
     return `the inverter holds invalid days ${slot.days}`;
   }
 
+  // Written as it is, such a slot would show as on and never act.
+  if (slot.enabled && slot.days === 0) {
+    return "days has to name at least one day before the slot is enabled";
+  }
+
   return null;
 }
 
-export type { EcoSlot };
+/**
+ * Reads back the slot a JSON state shows, as ecoSlotJson() wrote it.
+ *
+ * @param value state value
+ * @returns the slot, or null for anything ecoSlotJson() does not write
+ */
+function ecoSlotFromJson(value: ioBroker.StateValue): EcoSlot | null {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+
+  const slot = parsed as Record<string, unknown>;
+
+  return typeof slot.start === "string" &&
+    typeof slot.end === "string" &&
+    typeof slot.power === "number" &&
+    typeof slot.days === "number" &&
+    typeof slot.enabled === "boolean"
+    ? {
+        start: slot.start,
+        end: slot.end,
+        power: slot.power,
+        days: slot.days,
+        enabled: slot.enabled,
+      }
+    : null;
+}
+
+export type { EcoSlot, ProbeResult };
 export {
   checkEcoSlot,
   decodeEcoSlot,
   decodeEcoTime,
+  ecoSlotFromJson,
   ecoSlotJson,
   EcoModeV2Probe,
   EcoSlotRegisters,

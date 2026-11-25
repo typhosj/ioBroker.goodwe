@@ -31,8 +31,10 @@ import {
   checkEcoSlot,
   decodeEcoSlot,
   type EcoSlot,
+  ecoSlotFromJson,
   encodeEcoSlot,
   parseEcoSlotChanges,
+  type ProbeResult,
 } from "../src/lib/eco-mode";
 import {
   booleanDefaults,
@@ -1236,7 +1238,8 @@ describe("poll traffic", () => {
       >
     > = {},
     answered: (groupName: string) => boolean = () => true,
-    probe: "answered" | "rejected" | "lost" = "rejected",
+    // A list answers one probe after the other, its last entry from then on.
+    probe: ProbeResult | ProbeResult[] = "rejected",
   ): {
     cleared: string[];
     connection: boolean[];
@@ -1265,8 +1268,12 @@ describe("poll traffic", () => {
         return Promise.resolve(answered(groupName));
       },
       ProbeRegisters: (start: number) => {
+        const answers = Array.isArray(probe) ? probe : [probe];
+
         probes.push(start);
-        return Promise.resolve(probe);
+        return Promise.resolve(
+          answers[Math.min(probes.length, answers.length) - 1],
+        );
       },
     } as unknown as GoodWeUdp;
     const states = {
@@ -1504,6 +1511,24 @@ describe("poll traffic", () => {
     // A firmware that never answers must not stall every cycle on timeouts.
     assert.deepEqual(probes, [47547, 47547, 47547]);
     assert.equal(reads.includes("settingsEcoMode"), false);
+    assert.deepEqual(cleared, []);
+  });
+
+  it("keeps the eco mode slots when the third probe gets its rejection", async () => {
+    const { cleared, probes, reads, scheduler } = createPollScheduler(
+      { ...testConfig, pollCycle: 5 },
+      {},
+      () => true,
+      ["lost", "lost", "rejected"],
+    );
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    // Two lost answers on a weak link must not cost a V1 inverter its slots.
+    assert.deepEqual(probes, [47547, 47547, 47547]);
+    assert.equal(reads.filter((name) => name === "settingsEcoMode").length, 10);
     assert.deepEqual(cleared, []);
   });
 
@@ -1902,11 +1927,13 @@ describe("inverter control", () => {
     controlEnabled = true,
     options: {
       writeConfirmed?: boolean;
+      // Function 0x10 only; defaults to writeConfirmed.
+      multiWriteConfirmed?: boolean;
       readBack?: boolean;
       stored?: ioBroker.StateValue | ((state: string) => ioBroker.StateValue);
       online?: boolean;
       closed?: boolean;
-      probe?: "answered" | "rejected" | "lost";
+      probe?: ProbeResult;
     } = {},
   ): {
     acknowledged: StateWrite[];
@@ -1943,7 +1970,9 @@ describe("inverter control", () => {
           WriteRegisters: (start: number, values: number[]) => {
             multiWrites.push({ start, values });
             sequence.push("writeMulti");
-            return Promise.resolve(options.writeConfirmed !== false);
+            return Promise.resolve(
+              (options.multiWriteConfirmed ?? options.writeConfirmed) !== false,
+            );
           },
           ProbeRegisters: (start: number) => {
             probes.push(start);
@@ -2585,18 +2614,85 @@ describe("inverter control", () => {
       }
     });
 
-    it("refuses a slot on firmware with the newer eco mode registers", async () => {
-      for (const probe of ["answered", "lost"] as const) {
+    it("refuses a slot on firmware with the newer eco mode registers and keeps it empty", async () => {
+      const control = createControlContext(true, {
+        probe: "answered",
+        stored: slotState(stored),
+      });
+
+      await writeSlot(control, '{"enabled":false}');
+
+      assert.deepEqual(control.multiWrites, []);
+      // A read back would put the values of 47515 on the states again, which
+      // are no slots on this firmware.
+      assert.deepEqual(control.reads, []);
+      assert.deepEqual(control.updated, []);
+      assert.deepEqual(control.acknowledged, [
+        { id: "Settings.EcoMode.Slot2.Json", value: null, ack: true },
+      ]);
+    });
+
+    it("refuses a slot when the eco mode registers could not be checked", async () => {
+      const control = createControlContext(true, {
+        probe: "lost",
+        stored: slotState(stored),
+      });
+
+      await writeSlot(control, '{"enabled":false}');
+
+      assert.deepEqual(control.multiWrites, []);
+      // Most likely EcoModeV1 on a weak link: the slot as the inverter holds it.
+      assert.deepEqual(control.reads, ["settingsEcoMode"]);
+      assert.deepEqual(control.updated, ["Settings.EcoMode"]);
+    });
+
+    it("refuses a slot it could not read first", async () => {
+      for (const readBack of [false, true]) {
+        // true: the read works but leaves no slot behind.
         const control = createControlContext(true, {
-          probe,
-          stored: slotState(stored),
+          readBack,
+          stored: readBack ? () => null : slotState(stored),
         });
 
         await writeSlot(control, '{"enabled":false}');
 
-        assert.deepEqual(control.multiWrites, [], probe);
-        assert.deepEqual(control.reads, ["settingsEcoMode"], probe);
+        assert.deepEqual(control.multiWrites, [], String(readBack));
+        assert.deepEqual(control.acknowledged, [], String(readBack));
       }
+    });
+
+    it("takes the times off a slot that is switched off", async () => {
+      const control = createControlContext(true, {
+        stored: slotState(stored),
+      });
+
+      await writeSlot(control, '{"start":"","end":"","enabled":false}');
+
+      assert.deepEqual(control.multiWrites, [
+        { start: 47519, values: [0x3000, 0x3000, 0xff9c, 0x007f] },
+      ]);
+    });
+
+    it("refuses to take the times off a slot that stays on", async () => {
+      const control = createControlContext(true, {
+        stored: slotState(stored),
+      });
+
+      await writeSlot(control, '{"end":""}');
+
+      assert.deepEqual(control.multiWrites, []);
+      assert.deepEqual(control.updated, ["Settings.EcoMode"]);
+    });
+
+    it("refuses to enable a slot without days", async () => {
+      const control = createControlContext(true, {
+        stored: slotState({ ...stored, enabled: false }),
+      });
+
+      await writeSlot(control, '{"days":0,"enabled":true}');
+
+      assert.deepEqual(control.multiWrites, []);
+      assert.deepEqual(control.updated, ["Settings.EcoMode"]);
     });
 
     it("refuses to enable a slot without times", async () => {
@@ -2715,8 +2811,61 @@ describe("inverter control", () => {
 
       await writeWorkMode(control, 3);
 
-      assert.deepEqual(control.writes, []);
+      // The single write fallback fails at the EMS mode as well.
+      assert.deepEqual(control.writes, [{ address: 47511, value: 1 }]);
       assert.ok(control.reads.includes("settingsWorkMode"));
+    });
+
+    it("falls back to single writes when the inverter refuses 0x10", async () => {
+      const control = createControlContext(true, {
+        stored: ems(4, 500),
+        multiWriteConfirmed: false,
+      });
+
+      await writeWorkMode(control, 3);
+
+      assert.deepEqual(control.multiWrites, [{ start: 47511, values: [1, 0] }]);
+      // Auto first, then the limit, then the work mode.
+      assert.deepEqual(control.writes, [
+        { address: 47511, value: 1 },
+        { address: 47512, value: 0 },
+        { address: 47000, value: 3 },
+      ]);
+    });
+
+    it("writes only the EMS register that differs in the fallback", async () => {
+      for (const [mode, limit, expected] of [
+        [1, 500, 47512],
+        [4, 0, 47511],
+      ] as const) {
+        const control = createControlContext(true, {
+          stored: ems(mode, limit),
+          multiWriteConfirmed: false,
+        });
+
+        await writeWorkMode(control, 3);
+
+        assert.deepEqual(
+          control.writes.map((write) => write.address),
+          [expected, 47000],
+          `${mode}/${limit}`,
+        );
+      }
+    });
+
+    it("does not fall back once the 0x10 write took the inverter offline", async () => {
+      const control = createControlContext(true, { stored: ems(4, 500) });
+      const inverter = control.context.inverter;
+
+      // A lost answer takes the connection offline.
+      inverter.WriteRegisters = () => {
+        inverter.Status = false;
+        return Promise.resolve(false);
+      };
+
+      await writeWorkMode(control, 3);
+
+      assert.deepEqual(control.writes, []);
     });
 
     it("refuses a work mode outside general and eco before touching EMS", async () => {
@@ -2811,6 +2960,10 @@ describe("eco mode slots", () => {
     assert.deepEqual(parseEcoSlotChanges('{"power":100,"days":127}'), {
       changes: { power: 100, days: 127 },
     });
+    // "" takes the time off; checkEcoSlot() decides whether the slot may.
+    assert.deepEqual(parseEcoSlotChanges('{"start":"","end":""}'), {
+      changes: { start: "", end: "" },
+    });
   });
 
   it("refuses slot JSON it cannot write as it was meant", () => {
@@ -2828,7 +2981,8 @@ describe("eco mode slots", () => {
       '{"start":"24:00"}',
       '{"start":"2:00"}',
       '{"start":"12:60"}',
-      '{"end":""}',
+      '{"end":" "}',
+      '{"end":null}',
       '{"end":1200}',
       '{"power":101}',
       '{"power":-101}',
@@ -2868,6 +3022,35 @@ describe("eco mode slots", () => {
     // Some firmware reports every day as 0xFF; writing it back is fine.
     assert.equal(checkEcoSlot({ ...slot, days: 0xff }), null);
     assert.match(checkEcoSlot({ ...slot, days: 200 }) ?? "", /days/);
+    // On without a day would never act; off it may keep no day.
+    assert.match(checkEcoSlot({ ...slot, days: 0 }) ?? "", /at least one day/);
+    assert.equal(checkEcoSlot({ ...slot, days: 1 }), null);
+    assert.equal(checkEcoSlot({ ...slot, days: 0, enabled: false }), null);
+  });
+
+  it("reads back only the slot JSON it writes itself", () => {
+    const slot: EcoSlot = {
+      start: "",
+      end: "05:00",
+      power: -100,
+      days: 0,
+      enabled: false,
+    };
+
+    assert.deepEqual(ecoSlotFromJson(JSON.stringify(slot)), slot);
+    for (const value of [
+      null,
+      42,
+      "",
+      "not json",
+      "null",
+      "[]",
+      '{"start":"02:00"}',
+      JSON.stringify({ ...slot, power: "-100" }),
+      JSON.stringify({ ...slot, enabled: 1 }),
+    ]) {
+      assert.equal(ecoSlotFromJson(value), null, String(value));
+    }
   });
 
   it("reads the slots into fields and JSON", async () => {
@@ -2957,7 +3140,7 @@ describe("eco mode slots", () => {
       new RecordingSocket(requests, () => buildWriteResponse(47519, 1, 0x10)),
     );
 
-    for (const values of [[], [0x10000], [-1], [1.5], new Array(17).fill(0)]) {
+    for (const values of [[], [0x10000], [-1], [1.5], new Array(5).fill(0)]) {
       assert.equal(
         await inverter.WriteRegisters(47519, values as number[]),
         false,
@@ -2985,6 +3168,25 @@ describe("eco mode slots", () => {
     );
 
     assert.equal(await answered.ProbeRegisters(47547, 6), "answered");
+  });
+
+  it("stays online when a probe gets no answer", async function () {
+    this.timeout(10000);
+
+    const inverter = createInverter(
+      new ScriptedSocket([buildIdInfoResponse(), null]),
+    );
+
+    assert.equal(
+      await inverter.Connect("192.168.178.42", 8899, {
+        timeoutMs: 1000,
+        retries: 0,
+      }),
+      true,
+    );
+    assert.equal(await inverter.ProbeRegisters(47547, 6), "lost");
+    // Like an optional group read: the next poll decides about the connection.
+    assert.equal(inverter.Status, true);
   });
 });
 

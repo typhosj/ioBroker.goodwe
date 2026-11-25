@@ -578,10 +578,10 @@ class GoodWeUdp {
      * @param values register values, already checked by the caller
      */
     async WriteRegisters(start, values) {
-        // The caller checks the values; this guards the frame itself. Modbus caps
-        // one request at 123 registers, nothing here needs more than four.
+        // The caller checks the values; this guards the frame itself. Modbus allows
+        // 123 registers per request, the adapter sends at most one eco mode slot.
         if (values.length < 1 ||
-            values.length > 16 ||
+            values.length > 4 ||
             !values.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xffff)) {
             this.log.warn(`WriteRegisters ${start}: refused invalid register values`);
             return false;
@@ -696,7 +696,7 @@ class GoodWeUdp {
     // A write answer is a fixed length echo of the request, so it carries no
     // payload length byte the generic register check could use. 0x06 echoes
     // address and value, 0x10 start and register count.
-    #CheckRecWriteData(Data, FctCode, address, value) {
+    #CheckRecWriteData(Data, FctCode, address, valueOrCount) {
         if (Data.length < GoodWeRegister.WriteResponse.Length) {
             return false;
         }
@@ -707,8 +707,8 @@ class GoodWeUdp {
             Data[3] === FctCode &&
             Data[4] === address >> 8 &&
             Data[5] === (address & 0x00ff) &&
-            Data[6] === value >> 8 &&
-            Data[7] === (value & 0x00ff) &&
+            Data[6] === valueOrCount >> 8 &&
+            Data[7] === (valueOrCount & 0x00ff) &&
             Data[8] === crc >> 8 &&
             Data[9] === (crc & 0x00ff));
     }

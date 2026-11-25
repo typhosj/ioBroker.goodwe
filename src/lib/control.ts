@@ -3,10 +3,12 @@
 import {
   checkEcoSlot,
   type EcoSlot,
+  ecoSlotFromJson,
   ecoSlotJson,
   EcoModeV2Probe,
   encodeEcoSlot,
   parseEcoSlotChanges,
+  type ProbeResult,
 } from "./eco-mode";
 import {
   registerGroupOfState,
@@ -22,10 +24,7 @@ interface ControlInverter {
   Closed: boolean;
   WriteRegister: (address: number, value: number) => Promise<boolean>;
   WriteRegisters: (start: number, values: number[]) => Promise<boolean>;
-  ProbeRegisters: (
-    start: number,
-    count: number,
-  ) => Promise<"answered" | "rejected" | "lost">;
+  ProbeRegisters: (start: number, count: number) => Promise<ProbeResult>;
   ReadGroup: (
     groupName: string,
     options?: { optional?: boolean; backoff?: boolean },
@@ -353,10 +352,36 @@ async function setEmsModeAuto(context: ControlContext): Promise<boolean> {
 
   // 47511 and 47512 are neighbours: one request, so the inverter never runs
   // auto mode with the power limit of the manual mode before.
-  const written = await context.inverter.WriteRegisters(mode.address, [1, 0]);
+  let written = await context.inverter.WriteRegisters(mode.address, [1, 0]);
 
   if (context.inverter.Closed) {
     return false;
+  }
+
+  // Function 0x10 is confirmed on ARM 17 only for an eco mode slot, so a
+  // firmware that refuses it here falls back to the single writes the EMS
+  // states use. Auto goes first: auto with the old power limit for a moment is
+  // what the inverter would also run if only the second write failed, a manual
+  // mode with the limit cleared is not. A lost answer takes the connection
+  // offline, and then there is nothing to fall back on.
+  if (!written && context.inverter.Status) {
+    context.adapter.log.info(
+      "Writing the EMS mode and the EMS power limit one at a time",
+    );
+    written = true;
+
+    for (const [item, value] of [
+      [mode, 1],
+      [limit, 0],
+    ] as const) {
+      if (written && context.states.RegisterValue(group, item) !== value) {
+        written = await context.inverter.WriteRegister(item.address, value);
+      }
+    }
+
+    if (context.inverter.Closed) {
+      return false;
+    }
   }
 
   if (written) {
@@ -408,12 +433,18 @@ async function sendEcoSlotWrite(
     return;
   }
 
-  if (probe !== "rejected") {
-    await refuse(
-      probe === "answered"
-        ? "this firmware uses the newer eco mode registers, which the adapter does not write"
-        : "could not check which eco mode registers the firmware uses",
+  if (probe === "answered") {
+    context.adapter.log.warn(
+      `Ignoring write to ${stateId}: this firmware uses the newer eco mode registers, which the adapter does not write`,
     );
+    // A read back would put the values of 47515 on the states again, and on
+    // this firmware they are no slots: the scheduler keeps the states empty.
+    await context.states.Acknowledge(stateId, null);
+    return;
+  }
+
+  if (probe === "lost") {
+    await refuse("could not check which eco mode registers the firmware uses");
     return;
   }
 
@@ -428,8 +459,14 @@ async function sendEcoSlotWrite(
     return;
   }
 
-  const stored = context.states.RegisterValue(group, entry);
-  const current = JSON.parse(String(stored)) as EcoSlot;
+  const current = ecoSlotFromJson(context.states.RegisterValue(group, entry));
+
+  // Only a broken read gets here; it must not be merged into a write.
+  if (current === null) {
+    await refuse("could not read the slot first");
+    return;
+  }
+
   const slot: EcoSlot = { ...current, ...parsed.changes };
   const invalid = checkEcoSlot(slot);
 

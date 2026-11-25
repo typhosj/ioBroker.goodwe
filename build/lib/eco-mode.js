@@ -4,6 +4,7 @@ exports.EcoSlotStarts = exports.EcoSlotRegisters = exports.EcoModeV2Probe = void
 exports.checkEcoSlot = checkEcoSlot;
 exports.decodeEcoSlot = decodeEcoSlot;
 exports.decodeEcoTime = decodeEcoTime;
+exports.ecoSlotFromJson = ecoSlotFromJson;
 exports.ecoSlotJson = ecoSlotJson;
 exports.encodeEcoSlot = encodeEcoSlot;
 exports.parseEcoSlotChanges = parseEcoSlotChanges;
@@ -17,6 +18,8 @@ const EcoModeV2Probe = { start: 47547, count: 6 };
 exports.EcoModeV2Probe = EcoModeV2Probe;
 const UnsetHour = 48;
 const AllDays = 0x7f;
+// Power in % of the rated power, both directions.
+const MaxPower = 100;
 const Fields = ["start", "end", "power", "days", "enabled"];
 /**
  * Formats a time register as "HH:MM", or "" for a slot without a time.
@@ -129,13 +132,19 @@ function parseEcoSlotChanges(value) {
             return { error: `unknown field "${key}"` };
         }
     }
+    // "" takes the time off the slot, as SolarGo leaves unused slots;
+    // checkEcoSlot() refuses it on a slot that stays enabled.
     for (const key of ["start", "end"]) {
-        if (key in changes && !isTime(changes[key])) {
-            return { error: `${key} has to be "HH:MM" from 00:00 to 23:59` };
+        if (key in changes && changes[key] !== "" && !isTime(changes[key])) {
+            return {
+                error: `${key} has to be "HH:MM" from 00:00 to 23:59, or "" for no time`,
+            };
         }
     }
-    if ("power" in changes && !isInRange(changes.power, -100, 100)) {
-        return { error: "power has to be a whole number from -100 to 100" };
+    if ("power" in changes && !isInRange(changes.power, -MaxPower, MaxPower)) {
+        return {
+            error: `power has to be a whole number from -${MaxPower} to ${MaxPower}`,
+        };
     }
     if ("days" in changes && !isInRange(changes.days, 0, AllDays)) {
         return { error: "days has to be a whole number from 0 to 127" };
@@ -165,7 +174,7 @@ function checkEcoSlot(slot) {
             return `the inverter holds an invalid ${key} time ${slot[key]}`;
         }
     }
-    if (!isInRange(slot.power, -100, 100)) {
+    if (!isInRange(slot.power, -MaxPower, MaxPower)) {
         return `the inverter holds an invalid power ${slot.power}`;
     }
     // Some firmware reports every day as 0xFF; that is kept, never sent from a
@@ -173,5 +182,41 @@ function checkEcoSlot(slot) {
     if (!isInRange(slot.days, 0, AllDays) && slot.days !== 0xff) {
         return `the inverter holds invalid days ${slot.days}`;
     }
+    // Written as it is, such a slot would show as on and never act.
+    if (slot.enabled && slot.days === 0) {
+        return "days has to name at least one day before the slot is enabled";
+    }
     return null;
+}
+/**
+ * Reads back the slot a JSON state shows, as ecoSlotJson() wrote it.
+ *
+ * @param value state value
+ * @returns the slot, or null for anything ecoSlotJson() does not write
+ */
+function ecoSlotFromJson(value) {
+    let parsed;
+    try {
+        parsed = JSON.parse(String(value));
+    }
+    catch {
+        return null;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+        return null;
+    }
+    const slot = parsed;
+    return typeof slot.start === "string" &&
+        typeof slot.end === "string" &&
+        typeof slot.power === "number" &&
+        typeof slot.days === "number" &&
+        typeof slot.enabled === "boolean"
+        ? {
+            start: slot.start,
+            end: slot.end,
+            power: slot.power,
+            days: slot.days,
+            enabled: slot.enabled,
+        }
+        : null;
 }

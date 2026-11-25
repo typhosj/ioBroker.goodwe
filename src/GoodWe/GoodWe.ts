@@ -1,7 +1,12 @@
 import dgram from "node:dgram";
 import { setTimeout as sleep } from "node:timers/promises";
 import { clampNumber, type Transport } from "../lib/config";
-import { decodeEcoSlot, decodeEcoTime, ecoSlotJson } from "../lib/eco-mode";
+import {
+  decodeEcoSlot,
+  decodeEcoTime,
+  ecoSlotJson,
+  type ProbeResult,
+} from "../lib/eco-mode";
 import { errorMessage, ModbusExceptionError } from "../lib/errors";
 import {
   buildIdInfoRequest,
@@ -777,11 +782,11 @@ export class GoodWeUdp {
    * @param values register values, already checked by the caller
    */
   async WriteRegisters(start: number, values: number[]): Promise<boolean> {
-    // The caller checks the values; this guards the frame itself. Modbus caps
-    // one request at 123 registers, nothing here needs more than four.
+    // The caller checks the values; this guards the frame itself. Modbus allows
+    // 123 registers per request, the adapter sends at most one eco mode slot.
     if (
       values.length < 1 ||
-      values.length > 16 ||
+      values.length > 4 ||
       !values.every(
         (value) => Number.isInteger(value) && value >= 0 && value <= 0xffff,
       )
@@ -826,10 +831,7 @@ export class GoodWeUdp {
    * @param count number of registers
    * @returns "answered", "rejected" for a Modbus exception, or "lost"
    */
-  async ProbeRegisters(
-    start: number,
-    count: number,
-  ): Promise<"answered" | "rejected" | "lost"> {
+  async ProbeRegisters(start: number, count: number): Promise<ProbeResult> {
     const sendbuf = this.#buildReadRegisterRequest(start, count);
     const previousStatus = this.#status;
 
@@ -953,7 +955,7 @@ export class GoodWeUdp {
     Data: Uint8Array,
     FctCode: number,
     address: number,
-    value: number,
+    valueOrCount: number,
   ): boolean {
     if (Data.length < GoodWeRegister.WriteResponse.Length) {
       return false;
@@ -972,8 +974,8 @@ export class GoodWeUdp {
       Data[3] === FctCode &&
       Data[4] === address >> 8 &&
       Data[5] === (address & 0x00ff) &&
-      Data[6] === value >> 8 &&
-      Data[7] === (value & 0x00ff) &&
+      Data[6] === valueOrCount >> 8 &&
+      Data[7] === (valueOrCount & 0x00ff) &&
       Data[8] === crc >> 8 &&
       Data[9] === (crc & 0x00ff)
     );
