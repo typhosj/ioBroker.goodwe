@@ -172,9 +172,10 @@ not `true` or `false`, and for enabling a slot without start and end time.
 A slot only acts while the work mode is eco (3). To charge the battery from the grid at night, for
 example, write a slot with a negative power and then `WorkMode` = 3.
 
-Firmware from ARM 19 keeps its slots in other registers (from 47547). Before every slot write the
-adapter checks for them and refuses the write when the inverter answers there, because the newer slots
-have not been tested yet.
+Firmware from ARM 19 keeps its slots in other registers (from 47547) and answers 47515-47530 with
+values that are no slots. The adapter checks this once per connection: on such firmware the slot states
+stay empty and are not read. Every slot write checks again and is refused there, because the newer
+slots have not been tested yet.
 
 ### Risk
 
@@ -219,7 +220,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 ### **WORK IN PROGRESS**
 - The battery discharge current (`Settings.Battery.DischargeCurrent`, up to 100 A) can be written when inverter control is on. The inverter returns to its default after a reboot, so a script can now restore a lower limit, for example for older batteries (#60).
 - The work mode (`Settings.WorkMode`) can be written when inverter control is on, limited to general (0) and eco (3). Off-grid, backup, peak shaving and self-use are refused. Like the SolarGo app, the adapter first sets the EMS mode to auto and the EMS power limit to 0 in one request, so a manual EMS mode does not keep the inverter from following the work mode (#61).
-- Added the eco mode time slots of ARM firmware before 19 (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state that can be written when inverter control is on. A partial JSON keeps the other fields, the slot is written in one request and read back. Firmware with the newer eco mode registers (ARM 19 and newer) is refused (#61).
+- Added the eco mode time slots of ARM firmware before 19 (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state that can be written when inverter control is on. A partial JSON keeps the other fields, the slot is written in one request and read back. On firmware with the newer eco mode registers (ARM 19 and newer) the slot states stay empty and writes are refused (#61).
 - The work mode and the eco mode slots are read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, they are read even when `pollSettings` or `pollExtended` is off, which adds two requests per poll cycle.
 
 ### 1.3.0 (2026-10-27)

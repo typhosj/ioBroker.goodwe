@@ -4,6 +4,7 @@ exports.PollScheduler = exports.GoodWePollScheduler = void 0;
 exports.clampPollCycle = clampPollCycle;
 const errors_1 = require("./lib/errors");
 const config_1 = require("./lib/config");
+const eco_mode_1 = require("./lib/eco-mode");
 const register_map_1 = require("./lib/register-map");
 const ReconnectDelay = {
     // Skipped 1s ticks between reconnect attempts while the inverter is offline.
@@ -83,6 +84,10 @@ class GoodWePollScheduler {
     reconnectDelay = 0;
     reconnectSkips = 0;
     deviceInfoRead = false;
+    // Whether the firmware keeps its eco mode slots in 47515 ff. (EcoModeV1),
+    // undefined until the probe got an answer on this connection.
+    ecoModeV1;
+    ecoProbeLost = 0;
     optionalGroupIndex = 0;
     scheduler;
     constructor(adapter, inverter, states, intervalMs) {
@@ -105,6 +110,8 @@ class GoodWePollScheduler {
                 // A reconnect can mean a different inverter or new firmware, so the
                 // static device data is read again once the connection is back.
                 this.deviceInfoRead = false;
+                this.ecoModeV1 = undefined;
+                this.ecoProbeLost = 0;
                 if (this.reconnectSkips > 0) {
                     this.reconnectSkips--;
                     return;
@@ -218,10 +225,45 @@ class GoodWePollScheduler {
      */
     async UpdateSettings() {
         for (const groupName of SettingsGroups) {
-            if (this.states.IsRegisterGroupEnabled(groupName)) {
+            if (this.states.IsRegisterGroupEnabled(groupName) &&
+                (groupName !== "settingsEcoMode" || (await this.HasEcoModeV1()))) {
                 await this.ReadOptionalGroup(groupName);
             }
         }
+    }
+    /**
+     * Finds out once per connection whether the eco mode slots at 47515 mean
+     * anything on this firmware.
+     *
+     * Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2) and still
+     * answers 47515, with values that are no slots: a live GW10K-ET with ARM 29
+     * reported three enabled slots from 18:19 to 18:19 that the SolarGo app does
+     * not show. EcoModeV1 firmware rejects 47547.
+     */
+    async HasEcoModeV1() {
+        if (this.ecoModeV1 !== undefined) {
+            return this.ecoModeV1;
+        }
+        // Known limit: firmware that drops reads of 47547 instead of rejecting them
+        // loses the slot states until the next reconnect. Three tries keep a few
+        // lost answers on a weak link from costing a V1 inverter its slots, and a
+        // silent firmware from stalling every cycle on the probe's timeouts.
+        if (this.ecoProbeLost >= 3) {
+            return false;
+        }
+        const probe = await this.inverter.ProbeRegisters(eco_mode_1.EcoModeV2Probe.start, eco_mode_1.EcoModeV2Probe.count);
+        if (probe === "lost") {
+            this.ecoProbeLost++;
+            return false;
+        }
+        this.ecoModeV1 = probe === "rejected";
+        if (!this.ecoModeV1) {
+            this.adapter.log.info("This firmware uses the newer eco mode registers, the eco mode slot states stay empty");
+            // Values from before a firmware update would otherwise stay on the
+            // states and look like active slots.
+            await this.states.ClearRegisterGroup(register_map_1.registerGroups.settingsEcoMode);
+        }
+        return this.ecoModeV1;
     }
     /**
      * Reads one optional register group per cycle, round robin.

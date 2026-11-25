@@ -938,6 +938,33 @@ describe("state mapping", () => {
     );
   });
 
+  it("empties every state of a register group with ack", async () => {
+    const writes: StateWrite[] = [];
+    const manager = new GoodWeStateManager(
+      {
+        config: testConfig,
+        log: testLogger,
+        setStateChangedAsync: (
+          id: string,
+          value: ioBroker.StateValue,
+          ack: boolean,
+        ) => {
+          writes.push({ id, value, ack });
+          return Promise.resolve(undefined);
+        },
+      } as unknown as StateAdapterLike,
+      {} as unknown as GoodWeUdp,
+    );
+
+    await manager.ClearRegisterGroup(registerGroups.settingsEcoMode);
+
+    assert.equal(writes.length, registerGroups.settingsEcoMode.entries.length);
+    assert.ok(writes.every((write) => write.value === null && write.ack));
+    assert.ok(
+      writes.some((write) => write.id === "Settings.EcoMode.Slot4.Json"),
+    );
+  });
+
   it("writes mapped register values through setStateChangedAsync", async () => {
     const writes: StateWrite[] = [];
     const adapter: StateAdapterLike = {
@@ -1209,8 +1236,11 @@ describe("poll traffic", () => {
       >
     > = {},
     answered: (groupName: string) => boolean = () => true,
+    probe: "answered" | "rejected" | "lost" = "rejected",
   ): {
+    cleared: string[];
     connection: boolean[];
+    probes: number[];
     readOptions: Map<string, unknown>;
     reads: string[];
     scheduler: GoodWePollScheduler;
@@ -1221,6 +1251,8 @@ describe("poll traffic", () => {
     const warnings: string[] = [];
     const reads: string[] = [];
     const readOptions = new Map<string, unknown>();
+    const probes: number[] = [];
+    const cleared: string[] = [];
     let online = true;
     const inverter = {
       get Status(): boolean {
@@ -1231,6 +1263,10 @@ describe("poll traffic", () => {
         reads.push(groupName);
         readOptions.set(groupName, options);
         return Promise.resolve(answered(groupName));
+      },
+      ProbeRegisters: (start: number) => {
+        probes.push(start);
+        return Promise.resolve(probe);
       },
     } as unknown as GoodWeUdp;
     const states = {
@@ -1247,10 +1283,16 @@ describe("poll traffic", () => {
       UpdateDecodedRunningStatuses: () => Promise.resolve(undefined),
       UpdateDecodedBmsStatuses: () => Promise.resolve(undefined),
       UpdateDerivedRunningStates: () => Promise.resolve(undefined),
+      ClearRegisterGroup: (group: RegisterGroup) => {
+        cleared.push(group.name);
+        return Promise.resolve(undefined);
+      },
     } as unknown as GoodWeStateManager;
 
     return {
+      cleared,
       connection,
+      probes,
       readOptions,
       reads,
       warnings,
@@ -1405,6 +1447,80 @@ describe("poll traffic", () => {
     }
 
     assert.equal(reads.filter((name) => name === "deviceInfo").length, 2);
+  });
+
+  it("checks the eco mode registers once per connection", async () => {
+    const { cleared, probes, reads, scheduler, setStatus } =
+      createPollScheduler({ ...testConfig, pollCycle: 5 });
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.deepEqual(probes, [47547]);
+    assert.equal(reads.filter((name) => name === "settingsEcoMode").length, 12);
+    assert.deepEqual(cleared, []);
+
+    // New firmware arrives with a reboot, which drops the connection.
+    setStatus(false);
+    await scheduler.Poll();
+    setStatus(true);
+    await scheduler.Poll();
+
+    assert.deepEqual(probes, [47547, 47547]);
+  });
+
+  it("does not read the eco mode slots on firmware with the newer registers", async () => {
+    const { cleared, probes, reads, scheduler } = createPollScheduler(
+      { ...testConfig, pollCycle: 5 },
+      {},
+      () => true,
+      "answered",
+    );
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.deepEqual(probes, [47547]);
+    assert.equal(reads.includes("settingsEcoMode"), false);
+    // Values read before a firmware update must not stay on the states.
+    assert.deepEqual(cleared, ["Settings.EcoMode"]);
+    assert.ok(reads.includes("settingsWorkMode"));
+  });
+
+  it("gives up the eco mode check after three lost answers", async () => {
+    const { cleared, probes, reads, scheduler } = createPollScheduler(
+      { ...testConfig, pollCycle: 5 },
+      {},
+      () => true,
+      "lost",
+    );
+
+    for (let tick = 0; tick < 60; tick++) {
+      await scheduler.Poll();
+    }
+
+    // A firmware that never answers must not stall every cycle on timeouts.
+    assert.deepEqual(probes, [47547, 47547, 47547]);
+    assert.equal(reads.includes("settingsEcoMode"), false);
+    assert.deepEqual(cleared, []);
+  });
+
+  it("does not check the eco mode registers with the group switched off", async () => {
+    const { probes, scheduler } = createPollScheduler(
+      { ...testConfig, pollCycle: 5 },
+      {
+        IsRegisterGroupEnabled: (groupName: string) =>
+          groupName !== "settingsEcoMode",
+      },
+    );
+
+    for (let tick = 0; tick < 10; tick++) {
+      await scheduler.Poll();
+    }
+
+    assert.deepEqual(probes, []);
   });
 
   it("keeps polling the control group with the optional groups switched off", async () => {
