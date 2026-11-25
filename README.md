@@ -36,7 +36,7 @@ The adapter reads the GoodWe EMS Modbus protocol v1.7 register blocks for ET/EH/
 * CEI auto test information
 * Power limit information
 * Battery and EMS settings, including the grid export limit and the EMS mode
-* Work mode and load control settings, read only
+* Work mode, eco mode time slots (ARM firmware before 19) and load control settings
 
 Raw register values are kept as ioBroker states. Mode values are numeric states with ioBroker enum labels. Important bitfields are also exposed as decoded text states, for example active inverter errors, diagnostic status, BMS alarms and DRM status.
 
@@ -66,6 +66,7 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 | `Settings.GridExportEnabled`, `Settings.GridExportLimit` | Grid export limit switch and value |
 | `Settings.EmsMode`, `Settings.EmsPowerLimit` | EMS mode and the power the EMS mode works with |
 | `Settings.WorkMode` | Work mode set in the SolarGo app: 0 general, 1 off-grid, 2 backup, 3 eco, 4 peak shaving, 5 self-use. With inverter control, 0 and 3 can be written |
+| `Settings.EcoMode.Slot1.*` ... `Settings.EcoMode.Slot4.*` | Eco mode time slots of ARM firmware before 19: start, end, power, days, on/off and the whole slot as JSON. With inverter control, the JSON state can be written, see below |
 | `Settings.LoadControl.*` | Load control output (mode, switch, SOC) as plain numbers, because GoodWe does not document their meaning. Read only, needs ARM firmware 19 or newer |
 
 ## Configuration
@@ -75,7 +76,7 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 * `transport`: How the adapter talks to the inverter. `udp` (default) uses UDP port 8899, the protocol of the GoodWe WiFi dongle. `tcp` uses Modbus TCP on port 502, for the WiFi/LAN dongle 2.0 (WLA0000-01-00P), which does not answer on UDP port 8899 when it is connected by LAN.
   Modbus TCP is **experimental**: it has not been confirmed on a real dongle 2.0 yet. If it does not work for you, please open an issue with a debug log.
 * `discoverySubnet`: Optional `/24` subnet for network discovery, for example `192.168.178.0/24`.
-* `pollCycle`: Seconds between two reads of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and the battery, EMS and work mode settings, from 2 to 3600.
+* `pollCycle`: Seconds between two reads of the live data (`RunningData`, `ExtComData`, `BMSInfo`) and the battery, EMS, work mode and eco mode slot settings, from 2 to 3600.
   The other optional register groups, `Settings.LoadControl.*` included, do not follow this cycle: they share one slot that is served round robin about every 30 seconds, and `DeviceInfo` is read once per connection.
 * `timeoutMs`: Request timeout in milliseconds, from 1000 to 30000.
 * `retries`: Retry count per request, from 0 to 5.
@@ -87,8 +88,8 @@ Raw register values are kept as ioBroker states. Mode values are numeric states 
 * `pollBmsDetail`: Enables BMS detail registers, if supported by the inverter.
 * `pollCeiAutoTest`: Enables CEI auto test registers.
 * `pollPowerLimit`: Enables power limit registers, if supported by the inverter.
-* `pollSettings`: Enables the battery, EMS, work mode and load control setting registers.
-* `enableControl`: Makes the EMS, grid export, work mode, depth of discharge, charge current and discharge current states writable, see below. Off by default.
+* `pollSettings`: Enables the battery, EMS, work mode, eco mode slot and load control setting registers.
+* `enableControl`: Makes the EMS, grid export, work mode, eco mode slot, depth of discharge, charge current and discharge current states writable, see below. Off by default.
 
 The basic settings page also provides discovery helpers:
 
@@ -98,8 +99,9 @@ The basic settings page also provides discovery helpers:
 
 ## Inverter control
 
-With `enableControl` switched on, nine states become writable and are sent to the inverter as
-single register writes. Every other state stays read-only.
+With `enableControl` switched on, thirteen states become writable. Single values are sent as single
+register writes; an eco mode slot and the EMS reset before a work mode switch go out as one write of
+several registers (Modbus function 0x10). Every other state stays read-only.
 
 | State | Register | Range | Description |
 | --- | --- | --- | --- |
@@ -111,7 +113,8 @@ single register writes. Every other state stays read-only.
 | `Settings.Battery.DischargeDepthOffline` | 45358 | 0-95 % | Depth of discharge off grid, as the SolarGo app shows it |
 | `Settings.Battery.ChargeCurrent` | 45353 | 0-100 A | Maximum battery charge current; the BMS may limit it further |
 | `Settings.Battery.DischargeCurrent` | 45355 | 0-100 A | Maximum battery discharge current; the BMS may limit it further. The inverter returns to its default after a reboot, so a script has to write the value again |
-| `Settings.WorkMode` | 47000 | 0, 3 | Work mode: 0 general, 3 eco |
+| `Settings.WorkMode` | 47000 | 0, 3 | Work mode: 0 general, 3 eco. Sets the EMS mode to auto first, see below |
+| `Settings.EcoMode.Slot1.Json` ... `Slot4.Json` | 47515-47530 | JSON | One eco mode time slot, see [Eco mode time slots](#eco-mode-time-slots) |
 
 `GridExportLimit`, `EmsPowerLimit`, the depths of discharge, `ChargeCurrent` and `DischargeCurrent`
 clamp values outside their range. The inverter stores the depth of discharge as the remaining reserve, 100 minus the value
@@ -120,11 +123,12 @@ ends at 95 %, where the SolarGo app stops. `GridExportEnabled`, `EmsMode` and `W
 registers and accept only the values listed above - a value outside that list is refused instead of
 being clamped into a mode nobody asked for. `WorkMode` shows all six work modes, because the SolarGo app can set any of them, but only general and
 eco can be written: off-grid, backup and peak shaving change how the inverter treats the grid, and
-self-use exists only on newer inverter platforms, not on the ET series. The adapter writes only the
-work mode register. The SolarGo app and the Home Assistant integration also set the EMS mode back to
-auto when they switch the work mode; a manual EMS mode such as charge battery can keep the inverter
-from following the new work mode. A script that has changed `EmsMode` writes `EmsMode` = 1 (auto)
-before it writes `WorkMode`. Numbers written as plain decimal text,
+self-use exists only on newer inverter platforms, not on the ET series. Before it writes `WorkMode`,
+the adapter sets `EmsMode` to 1 (auto) and `EmsPowerLimit` to 0 in one request, as the SolarGo app does
+on every work mode switch: a manual EMS mode such as charge battery keeps the inverter from following
+the work mode. This happens on every `WorkMode` write, also when the work mode stays the same, and is
+skipped when the inverter already holds auto and 0. If the EMS mode cannot be set, the work mode is
+not written. Numbers written as plain decimal text,
 for example `"500"` from an input field, are accepted, and `GridExportEnabled` also takes `true` and
 `false`; any other value is refused. The states are numbers, so ioBroker notes text and booleans with an
 info line in the log of the adapter that wrote them. After a
@@ -139,13 +143,40 @@ Before a write the adapter reads the register group and skips the write when the
 the value. A script that repeats the same setpoint every cycle therefore does not send a register write
 every time.
 
-Switching `enableControl` on keeps the battery, EMS and work mode setting registers polled even when
+Switching `enableControl` on keeps the battery, EMS, work mode and eco mode slot registers polled even when
 `pollSettings` or `pollExtended` is off, because the writable states have to exist and be read back. Unlike the other
 optional groups, a failed read of this group does not pause it for an hour; it is tried again in the
 next poll cycle.
 
-The battery, EMS and work mode settings are read on every poll cycle, so a change made elsewhere, for example in the GoodWe app,
+The battery, EMS, work mode and eco mode slot settings are read on every poll cycle, so a change made elsewhere, for example in the GoodWe app,
 shows up in the states within one `pollCycle`.
+
+### Eco mode time slots
+
+Inverters with ARM firmware before 19 keep four eco mode time slots in registers 47515-47530. Each
+slot `Settings.EcoMode.SlotN` has the read-only states `Start` and `End` ("HH:MM", empty while the
+slot has no time), `Power` (% of the rated power; negative charges the battery from the grid, positive
+discharges it), `Days` (bit 0 Sunday to bit 6 Saturday, 127 every day) and `Enabled` (0 off, 1 on).
+With inverter control on, the slot is written through its JSON state `Json`:
+
+```json
+{"start":"02:00","end":"05:00","power":-100,"days":127,"enabled":true}
+```
+
+A partial object is fine: `{"enabled":false}` keeps the other fields. The adapter reads the slot,
+replaces the fields you wrote, sends all four registers in one request, so the inverter never holds a
+half changed slot, and reads the slot back. A write is refused for unknown fields, times that are not
+"HH:MM" between 00:00 and 23:59, a power outside -100 to 100, days outside 0-127, an `enabled` that is
+not `true` or `false`, and for enabling a slot without start and end time.
+
+A slot only acts while the work mode is eco (3). To charge the battery from the grid at night, for
+example, write a slot with a negative power and then `WorkMode` = 3.
+
+Firmware from ARM 19 keeps its slots in other registers (from 47547). Before every slot write the
+adapter checks for them and refuses the write when the inverter answers there, because the newer slots
+have not been tested yet.
+
+### Risk
 
 GoodWe does not document its writable registers. Control is off by default, and switching it on
 happens at your own risk: a wrong value changes inverter settings that the adapter cannot restore.
@@ -187,8 +218,9 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 -->
 ### **WORK IN PROGRESS**
 - The battery discharge current (`Settings.Battery.DischargeCurrent`, up to 100 A) can be written when inverter control is on. The inverter returns to its default after a reboot, so a script can now restore a lower limit, for example for older batteries (#60).
-- The work mode (`Settings.WorkMode`) can be written when inverter control is on, limited to general (0) and eco (3). Off-grid, backup, peak shaving and self-use are refused. Only the work mode register is written: a script that has set a manual EMS mode sets `EmsMode` back to auto (1) first (#61).
-- The work mode is now read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, it is read even when `pollSettings` or `pollExtended` is off, which adds one request per poll cycle.
+- The work mode (`Settings.WorkMode`) can be written when inverter control is on, limited to general (0) and eco (3). Off-grid, backup, peak shaving and self-use are refused. Like the SolarGo app, the adapter first sets the EMS mode to auto and the EMS power limit to 0 in one request, so a manual EMS mode does not keep the inverter from following the work mode (#61).
+- Added the eco mode time slots of ARM firmware before 19 (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state that can be written when inverter control is on. A partial JSON keeps the other fields, the slot is written in one request and read back. Firmware with the newer eco mode registers (ARM 19 and newer) is refused (#61).
+- The work mode and the eco mode slots are read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, they are read even when `pollSettings` or `pollExtended` is off, which adds two requests per poll cycle.
 
 ### 1.3.0 (2026-10-27)
 - Added Modbus TCP on port 502 as a second, experimental connection for the GoodWe WiFi/LAN dongle 2.0, which does not answer the UDP protocol on port 8899 when it is connected by LAN. Choose it under "Connection" in the basic settings; UDP stays the default. The inverter search uses the selected connection (#59).

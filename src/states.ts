@@ -2,6 +2,7 @@
 
 import { booleanDefaults, normalizeBoolean } from "./lib/config";
 import {
+  isTextType,
   optionalGroupConfigs,
   type RegisterEntry,
   type RegisterGroup,
@@ -202,7 +203,7 @@ class GoodWeStateManager {
           type: "state",
           common: {
             name: item.state.split(".").pop() ?? item.state,
-            type: item.type === TYPE.STRING ? "string" : "number",
+            type: isTextType(item.type) ? "string" : "number",
             role,
             read: true,
             write: writable,
@@ -253,7 +254,8 @@ class GoodWeStateManager {
       return "text";
     }
 
-    return writable ? "level" : item.role;
+    // A JSON or time text keeps its role: "level" means a number.
+    return writable && !isTextType(item.type) ? "level" : item.role;
   }
 
   /**

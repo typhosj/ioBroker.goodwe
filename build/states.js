@@ -141,7 +141,7 @@ class GoodWeStateManager {
                     type: "state",
                     common: {
                         name: item.state.split(".").pop() ?? item.state,
-                        type: item.type === register_map_1.TYPE.STRING ? "string" : "number",
+                        type: (0, register_map_1.isTextType)(item.type) ? "string" : "number",
                         role,
                         read: true,
                         write: writable,
@@ -184,7 +184,8 @@ class GoodWeStateManager {
         if (item.type === register_map_1.TYPE.STRING) {
             return "text";
         }
-        return writable ? "level" : item.role;
+        // A JSON or time text keeps its role: "level" means a number.
+        return writable && !(0, register_map_1.isTextType)(item.type) ? "level" : item.role;
     }
     /**
      * Keeps role and write flag of an existing object in sync with the switch.

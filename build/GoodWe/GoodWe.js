@@ -8,6 +8,7 @@ exports.GoodWeUdp = exports.GoodweBmSInfo = exports.GoodWeExternalComData = expo
 const node_dgram_1 = __importDefault(require("node:dgram"));
 const promises_1 = require("node:timers/promises");
 const config_1 = require("../lib/config");
+const eco_mode_1 = require("../lib/eco-mode");
 const errors_1 = require("../lib/errors");
 const goodwe_discovery_1 = require("../lib/goodwe-discovery");
 const register_map_1 = require("../lib/register-map");
@@ -19,8 +20,10 @@ class GoodWeRegister {
     static FcCode = {
         Read: 0x03,
         WriteSingleRegister: 0x06,
+        WriteMultipleRegisters: 0x10,
     };
-    // Header, address, function code, register address and value, without CRC.
+    // Header, address, function code, register address and value (0x06) or
+    // start and register count (0x10), and CRC.
     static WriteResponse = { Length: 10 };
     // Header, address, function code, exception code and CRC.
     static ExceptionResponse = { Length: 7, FcFlag: 0x80 };
@@ -440,6 +443,12 @@ class GoodWeUdp {
             case register_map_1.TYPE.BYTE:
                 value = data[offset + item.byteOffset];
                 break;
+            case register_map_1.TYPE.TIME:
+                value = (0, eco_mode_1.decodeEcoTime)(this.#GetUintFromByteArray(data, offset, 2));
+                break;
+            case register_map_1.TYPE.ECO_SLOT:
+                value = (0, eco_mode_1.ecoSlotJson)((0, eco_mode_1.decodeEcoSlot)(data.subarray(offset, offset + item.registers * 2)));
+                break;
             default:
                 value = this.#GetUintFromByteArray(data, offset, 2);
                 break;
@@ -528,7 +537,7 @@ class GoodWeUdp {
     async WriteRegister(address, value) {
         const sendbuf = this.#buildWriteRegisterRequest(address, value);
         try {
-            await this.#request(sendbuf, (data) => this.#CheckRecWriteData(data, address, value), `WriteRegister ${address}`, (data) => this.#ExceptionCode(data, sendbuf[1]));
+            await this.#request(sendbuf, (data) => this.#CheckRecWriteData(data, GoodWeRegister.FcCode.WriteSingleRegister, address, value), `WriteRegister ${address}`, (data) => this.#ExceptionCode(data, sendbuf[1]));
             return true;
         }
         catch (error) {
@@ -536,6 +545,85 @@ class GoodWeUdp {
                 this.log.warn(`WriteRegister ${address}: ${(0, errors_1.errorMessage)(error)}`);
             }
             return false;
+        }
+    }
+    #buildWriteRegistersRequest(start, values) {
+        // Address, function code, start, register count, byte count, data, CRC.
+        const sendbuf = new Uint8Array(7 + values.length * 2 + 2);
+        sendbuf[0] = GoodWeRegister.Addr.Inverter;
+        sendbuf[1] = GoodWeRegister.FcCode.WriteMultipleRegisters;
+        sendbuf[2] = start >> 8;
+        sendbuf[3] = start & 0x00ff;
+        sendbuf[4] = values.length >> 8;
+        sendbuf[5] = values.length & 0x00ff;
+        sendbuf[6] = values.length * 2;
+        values.forEach((value, index) => {
+            sendbuf[7 + index * 2] = value >> 8;
+            sendbuf[8 + index * 2] = value & 0x00ff;
+        });
+        const crcStart = sendbuf.length - GoodWeRegister.Format.CRC16;
+        const crc = (0, modbus_tcp_1.crc16)(sendbuf, 0, crcStart);
+        sendbuf[crcStart] = crc >> 8;
+        sendbuf[crcStart + 1] = crc & 0x00ff;
+        return sendbuf;
+    }
+    /**
+     * Writes consecutive holding registers in one request (function code 0x10)
+     * and waits for the inverter to confirm start and count.
+     *
+     * One request, so the inverter never holds a half written block, for example
+     * an eco mode slot with the new power but the old times.
+     *
+     * @param start first register
+     * @param values register values, already checked by the caller
+     */
+    async WriteRegisters(start, values) {
+        // The caller checks the values; this guards the frame itself. Modbus caps
+        // one request at 123 registers, nothing here needs more than four.
+        if (values.length < 1 ||
+            values.length > 16 ||
+            !values.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xffff)) {
+            this.log.warn(`WriteRegisters ${start}: refused invalid register values`);
+            return false;
+        }
+        const sendbuf = this.#buildWriteRegistersRequest(start, values);
+        try {
+            await this.#request(sendbuf, (data) => this.#CheckRecWriteData(data, GoodWeRegister.FcCode.WriteMultipleRegisters, start, values.length), `WriteRegisters ${start}`, (data) => this.#ExceptionCode(data, sendbuf[1]));
+            return true;
+        }
+        catch (error) {
+            if (!this.#closed) {
+                this.log.warn(`WriteRegisters ${start}: ${(0, errors_1.errorMessage)(error)}`);
+            }
+            return false;
+        }
+    }
+    /**
+     * Reads a register block only to learn whether the inverter knows it.
+     *
+     * Like an optional group read, a lost answer does not take the connection
+     * offline: the next poll decides that.
+     *
+     * @param start first register
+     * @param count number of registers
+     * @returns "answered", "rejected" for a Modbus exception, or "lost"
+     */
+    async ProbeRegisters(start, count) {
+        const sendbuf = this.#buildReadRegisterRequest(start, count);
+        const previousStatus = this.#status;
+        try {
+            await this.#request(sendbuf, (data) => this.#CheckRecRegisterData(data, sendbuf[1], count), `ProbeRegisters ${start}`, (data) => this.#ExceptionCode(data, sendbuf[1]));
+            return "answered";
+        }
+        catch (error) {
+            if (error instanceof errors_1.ModbusExceptionError) {
+                return "rejected";
+            }
+            if (!this.#closed) {
+                this.#status = previousStatus;
+                this.log.debug?.(`ProbeRegisters ${start}: ${(0, errors_1.errorMessage)(error)}`);
+            }
+            return "lost";
         }
     }
     /**
@@ -606,8 +694,9 @@ class GoodWeUdp {
         return Data[4];
     }
     // A write answer is a fixed length echo of the request, so it carries no
-    // payload length byte the generic register check could use.
-    #CheckRecWriteData(Data, address, value) {
+    // payload length byte the generic register check could use. 0x06 echoes
+    // address and value, 0x10 start and register count.
+    #CheckRecWriteData(Data, FctCode, address, value) {
         if (Data.length < GoodWeRegister.WriteResponse.Length) {
             return false;
         }
@@ -615,7 +704,7 @@ class GoodWeUdp {
         return (Data[0] === GoodWeRegister.RecvHeader.High &&
             Data[1] === GoodWeRegister.RecvHeader.Low &&
             Data[2] === GoodWeRegister.Addr.Inverter &&
-            Data[3] === GoodWeRegister.FcCode.WriteSingleRegister &&
+            Data[3] === FctCode &&
             Data[4] === address >> 8 &&
             Data[5] === (address & 0x00ff) &&
             Data[6] === value >> 8 &&

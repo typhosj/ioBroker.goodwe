@@ -47,6 +47,10 @@ const valueStates = {
         4: "Battery",
         16: "Fault",
     },
+    ecoSlotEnabled: {
+        0: "Off",
+        1: "On",
+    },
     gridExport: {
         0: "Disabled",
         1: "Enabled",

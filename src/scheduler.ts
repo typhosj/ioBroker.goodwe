@@ -29,8 +29,13 @@ const OptionalGroupIntervalSeconds = 30;
 
 // Settings a script or the GoodWe app can change at any moment. Behind the
 // round robin slot they were minutes old, so they are read on the live cycle.
-// All of them are tiny: nine, four and one register.
-const SettingsGroups = ["settingsBattery", "settingsEms", "settingsWorkMode"];
+// All of them are small: nine, four, one and sixteen registers.
+const SettingsGroups = [
+  "settingsBattery",
+  "settingsEms",
+  "settingsWorkMode",
+  "settingsEcoMode",
+];
 
 interface SchedulerAdapter {
   config: ioBroker.AdapterConfig;

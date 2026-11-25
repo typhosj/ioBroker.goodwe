@@ -1,9 +1,18 @@
 "use strict";
 
 import {
+  checkEcoSlot,
+  type EcoSlot,
+  ecoSlotJson,
+  EcoModeV2Probe,
+  encodeEcoSlot,
+  parseEcoSlotChanges,
+} from "./eco-mode";
+import {
   registerGroupOfState,
   registerGroups,
   toStateValue,
+  TYPE,
   writableEntries,
 } from "./register-map";
 import type { RegisterEntry } from "./register-map";
@@ -12,6 +21,11 @@ interface ControlInverter {
   Status: boolean;
   Closed: boolean;
   WriteRegister: (address: number, value: number) => Promise<boolean>;
+  WriteRegisters: (start: number, values: number[]) => Promise<boolean>;
+  ProbeRegisters: (
+    start: number,
+    count: number,
+  ) => Promise<"answered" | "rejected" | "lost">;
   ReadGroup: (
     groupName: string,
     options?: { optional?: boolean; backoff?: boolean },
@@ -231,6 +245,11 @@ async function sendControlWrite(
     return;
   }
 
+  if (entry.type === TYPE.ECO_SLOT) {
+    await sendEcoSlotWrite(context, stateId, entry, stateValue);
+    return;
+  }
+
   const value = clampWriteValue(entry, stateValue);
 
   if (value === null) {
@@ -249,6 +268,17 @@ async function sendControlWrite(
     context.adapter.log.warn(
       `Clamped write to ${stateId} from ${String(stateValue)} to ${shown}`,
     );
+  }
+
+  // A manual EMS mode, charge battery for example, keeps the inverter from
+  // following the work mode. The SolarGo app sets it back to auto on every
+  // switch, and so does the adapter, even when the work mode stays the same.
+  if (stateId === "Settings.WorkMode" && !(await setEmsModeAuto(context))) {
+    context.adapter.log.warn(
+      `Ignoring write to ${stateId}: could not set the EMS mode to auto first`,
+    );
+    await readBack(context, stateId);
+    return;
   }
 
   const groupName = registerGroupOfState(stateId);
@@ -294,6 +324,144 @@ async function sendControlWrite(
   // value nobody confirmed. Acknowledge what the inverter echoed; a failed
   // write keeps its warning and is corrected by the next poll of the group.
   if (written) {
+    await context.states.Acknowledge(stateId, shown);
+  }
+}
+
+/**
+ * Sets EMS mode auto and EMS power limit 0 in one request, unless the inverter
+ * already holds them.
+ *
+ * @param context adapter, inverter and state manager
+ * @returns false when the EMS settings could not be read or written
+ */
+async function setEmsModeAuto(context: ControlContext): Promise<boolean> {
+  const group = registerGroups.settingsEms;
+  const mode = writableEntries.get("Settings.EmsMode") as RegisterEntry;
+  const limit = writableEntries.get("Settings.EmsPowerLimit") as RegisterEntry;
+
+  if (!(await context.inverter.ReadGroup("settingsEms", controlReadOptions))) {
+    return false;
+  }
+
+  if (
+    context.states.RegisterValue(group, mode) === 1 &&
+    context.states.RegisterValue(group, limit) === 0
+  ) {
+    return true;
+  }
+
+  // 47511 and 47512 are neighbours: one request, so the inverter never runs
+  // auto mode with the power limit of the manual mode before.
+  const written = await context.inverter.WriteRegisters(mode.address, [1, 0]);
+
+  if (context.inverter.Closed) {
+    return false;
+  }
+
+  if (written) {
+    context.adapter.log.info("Set the EMS mode to auto for the work mode");
+  }
+
+  await readBack(context, mode.state);
+  return written;
+}
+
+/**
+ * Writes one eco mode slot from the JSON a script wrote to its state.
+ *
+ * The slot is read first and the fields the script named replace the ones the
+ * inverter holds, then all four registers go out in one request and the slot
+ * is read back.
+ *
+ * @param context adapter, inverter and state manager
+ * @param stateId state id without the adapter namespace
+ * @param entry register entry of the slot
+ * @param stateValue value written to the state
+ */
+async function sendEcoSlotWrite(
+  context: ControlContext,
+  stateId: string,
+  entry: RegisterEntry,
+  stateValue: ioBroker.StateValue,
+): Promise<void> {
+  const refuse = async (reason: string): Promise<void> => {
+    context.adapter.log.warn(`Ignoring write to ${stateId}: ${reason}`);
+    await readBack(context, stateId);
+  };
+  const parsed = parseEcoSlotChanges(stateValue);
+
+  if ("error" in parsed) {
+    await refuse(parsed.error);
+    return;
+  }
+
+  // Firmware from ARM 19 keeps its slots at 47547 (EcoModeV2). Whether it still
+  // follows 47515 is unknown, so it gets no write it might misread. Checked
+  // per write: a firmware update does not have to drop the connection.
+  const probe = await context.inverter.ProbeRegisters(
+    EcoModeV2Probe.start,
+    EcoModeV2Probe.count,
+  );
+
+  if (context.inverter.Closed) {
+    return;
+  }
+
+  if (probe !== "rejected") {
+    await refuse(
+      probe === "answered"
+        ? "this firmware uses the newer eco mode registers, which the adapter does not write"
+        : "could not check which eco mode registers the firmware uses",
+    );
+    return;
+  }
+
+  const group = registerGroups.settingsEcoMode;
+
+  if (
+    !(await context.inverter.ReadGroup("settingsEcoMode", controlReadOptions))
+  ) {
+    context.adapter.log.warn(
+      `Ignoring write to ${stateId}: could not read the slot first`,
+    );
+    return;
+  }
+
+  const stored = context.states.RegisterValue(group, entry);
+  const current = JSON.parse(String(stored)) as EcoSlot;
+  const slot: EcoSlot = { ...current, ...parsed.changes };
+  const invalid = checkEcoSlot(slot);
+
+  if (invalid !== null) {
+    await refuse(invalid);
+    return;
+  }
+
+  const values = encodeEcoSlot(slot);
+  const shown = ecoSlotJson(slot);
+
+  if (values.join() === encodeEcoSlot(current).join()) {
+    context.adapter.log.debug(
+      `Skipping write to ${stateId}: inverter already holds ${shown}`,
+    );
+    await context.states.UpdateStatesFromRegisterMap(group);
+    return;
+  }
+
+  const written = await context.inverter.WriteRegisters(entry.address, values);
+
+  if (context.inverter.Closed) {
+    return;
+  }
+
+  if (written) {
+    context.adapter.log.info(`Wrote ${shown} to ${stateId}`);
+  } else {
+    context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
+  }
+
+  if (!(await readBack(context, stateId)) && written) {
     await context.states.Acknowledge(stateId, shown);
   }
 }

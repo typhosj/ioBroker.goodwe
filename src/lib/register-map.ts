@@ -1,5 +1,6 @@
 "use strict";
 
+import { EcoSlotRegisters, EcoSlotStarts } from "./eco-mode";
 import { valueStates, type ValueStateMap } from "./status-definitions";
 
 const TYPE = {
@@ -10,6 +11,10 @@ const TYPE = {
   FLOAT: "FLOAT",
   STRING: "STRING",
   BYTE: "BYTE",
+  // One register, high byte hour and low byte minute, shown as "HH:MM".
+  TIME: "TIME",
+  // One whole eco mode slot, shown as JSON (see src/lib/eco-mode.ts).
+  ECO_SLOT: "ECO_SLOT",
 } as const;
 
 type RegisterType = (typeof TYPE)[keyof typeof TYPE];
@@ -38,6 +43,8 @@ interface RegisterEntry {
   writable?: WritableRange;
   // The state shows complement minus the register value.
   complement?: number;
+  // The state shows 1 for every register value but 0.
+  flag?: boolean;
 }
 
 interface RegisterGroup {
@@ -60,6 +67,7 @@ interface EntryOptions {
   states?: ValueStateMap;
   writable?: WritableRange;
   complement?: number;
+  flag?: boolean;
 }
 
 const registerGroups: Record<string, RegisterGroup> = {
@@ -1167,9 +1175,11 @@ const registerGroups: Record<string, RegisterGroup> = {
   // self-use exists only on the newer 745 platform, not on the ET series.
   // common.states keeps all six modes on purpose: the SolarGo app can set any
   // of them, and the state has to name the mode the inverter reports.
-  // marcelblijleven/goodwe also sets EMS mode auto (47511/47512 = 1/0) on every
-  // mode switch and writes 47533 = 1 for general. The adapter writes only 47000;
-  // the README tells scripts to set the EMS mode to auto themselves.
+  // Like the SolarGo app, control.ts sets the EMS mode back to auto
+  // (47511/47512 = 1/0) before it writes the work mode. marcelblijleven/goodwe
+  // also writes 47533 = 1 for general. Nothing says what 47533 means, so it
+  // is left out; the switch to eco worked without it on ARM 17 (#61), the
+  // switch to general is untested.
   settingsWorkMode: {
     name: "Settings.WorkMode",
     start: 47000,
@@ -1182,6 +1192,21 @@ const registerGroups: Record<string, RegisterGroup> = {
         writable: { min: 0, max: 3, values: [0, 3] },
       }),
     ],
+  },
+
+  // Eco mode time slots of firmware before ARM 19 (EcoModeV1). Only the JSON
+  // state of a slot is writable: control.ts writes the whole slot in one
+  // request, so the inverter never holds a half changed slot. Firmware with
+  // EcoModeV2 (47547) is refused there, nobody could test its slots yet.
+  settingsEcoMode: {
+    name: "Settings.EcoMode",
+    start: EcoSlotStarts[0],
+    count: EcoSlotStarts.length * EcoSlotRegisters,
+    channel: "Settings",
+    target: "Settings",
+    entries: EcoSlotStarts.flatMap((start, index) =>
+      ecoSlotEntries(index + 1, start),
+    ),
   },
 
   // What the load control values mean is not documented anywhere reliable, so
@@ -1216,6 +1241,7 @@ const optionalGroupConfigs: Record<string, string> = {
   settingsBattery: "pollSettings",
   settingsEms: "pollSettings",
   settingsWorkMode: "pollSettings",
+  settingsEcoMode: "pollSettings",
   settingsLoadControl: "pollSettings",
 };
 
@@ -1259,6 +1285,10 @@ function registerGroupOfState(state: string): string {
  * @param register register value
  */
 function toStateValue(item: RegisterEntry, register: number): number {
+  if (item.flag) {
+    return register === 0 ? 0 : 1;
+  }
+
   const scaled = register / item.scale;
   return item.complement === undefined ? scaled : item.complement - scaled;
 }
@@ -1283,7 +1313,57 @@ function entry(
     states: options.states,
     writable: options.writable,
     complement: options.complement,
+    flag: options.flag,
   };
+}
+
+/**
+ * Reports whether a register type is shown as a string state.
+ *
+ * @param type register type
+ */
+function isTextType(type: RegisterType): boolean {
+  return type === TYPE.STRING || type === TYPE.TIME || type === TYPE.ECO_SLOT;
+}
+
+/**
+ * Returns the entries of one eco mode slot: the fields read only, the whole
+ * slot as a writable JSON state.
+ *
+ * @param slot slot number, 1 to 4
+ * @param start first register of the slot
+ */
+function ecoSlotEntries(slot: number, start: number): RegisterEntry[] {
+  const state = `Settings.EcoMode.Slot${slot}`;
+  const model = `EcoMode.Slot${slot}`;
+
+  return [
+    entry(start, `${state}.Start`, `${model}.Start`, TYPE.TIME, {
+      role: "text",
+    }),
+    entry(start + 1, `${state}.End`, `${model}.End`, TYPE.TIME, {
+      role: "text",
+    }),
+    // Negative charges the battery from the grid, positive discharges it.
+    entry(start + 2, `${state}.Power`, `${model}.Power`, TYPE.S16, {
+      unit: "%",
+    }),
+    // Bit 0 Sunday to bit 6 Saturday, 127 every day.
+    entry(start + 3, `${state}.Days`, `${model}.Days`, TYPE.BYTE, {
+      byteOffset: 1,
+    }),
+    entry(start + 3, `${state}.Enabled`, `${model}.Enabled`, TYPE.BYTE, {
+      flag: true,
+      states: valueStates.ecoSlotEnabled,
+    }),
+    // The range holds for each of the four registers; eco-mode.ts checks the
+    // fields before anything is sent.
+    entry(start, `${state}.Json`, `${model}.Json`, TYPE.ECO_SLOT, {
+      registers: EcoSlotRegisters,
+      role: "json",
+      writable: { min: 0, max: 0xffff },
+    }),
+  ];
 }
 
 function typeRegisterCount(type: RegisterType): number {
@@ -1504,6 +1584,7 @@ function roleForUnit(unit?: string): string {
 
 export type { RegisterEntry, RegisterGroup, WritableRange };
 export {
+  isTextType,
   optionalGroupConfigs,
   registerGroupOfState,
   TYPE,
