@@ -159,10 +159,18 @@ describe("register map", () => {
       "Settings.Battery.DischargeCurrent",
       "Settings.Battery.DischargeDepth",
       "Settings.Battery.DischargeDepthOffline",
+      "Settings.EcoMode.Slot1.Enabled",
       "Settings.EcoMode.Slot1.Json",
+      "Settings.EcoMode.Slot1.Power",
+      "Settings.EcoMode.Slot2.Enabled",
       "Settings.EcoMode.Slot2.Json",
+      "Settings.EcoMode.Slot2.Power",
+      "Settings.EcoMode.Slot3.Enabled",
       "Settings.EcoMode.Slot3.Json",
+      "Settings.EcoMode.Slot3.Power",
+      "Settings.EcoMode.Slot4.Enabled",
       "Settings.EcoMode.Slot4.Json",
+      "Settings.EcoMode.Slot4.Power",
       "Settings.EmsMode",
       "Settings.EmsPowerLimit",
       "Settings.GridExportEnabled",
@@ -2149,10 +2157,18 @@ describe("inverter control", () => {
       "Settings.Battery.DischargeCurrent",
       "Settings.Battery.DischargeDepth",
       "Settings.Battery.DischargeDepthOffline",
+      "Settings.EcoMode.Slot1.Enabled",
       "Settings.EcoMode.Slot1.Json",
+      "Settings.EcoMode.Slot1.Power",
+      "Settings.EcoMode.Slot2.Enabled",
       "Settings.EcoMode.Slot2.Json",
+      "Settings.EcoMode.Slot2.Power",
+      "Settings.EcoMode.Slot3.Enabled",
       "Settings.EcoMode.Slot3.Json",
+      "Settings.EcoMode.Slot3.Power",
+      "Settings.EcoMode.Slot4.Enabled",
       "Settings.EcoMode.Slot4.Json",
+      "Settings.EcoMode.Slot4.Power",
       "Settings.EmsMode",
       "Settings.EmsPowerLimit",
       "Settings.GridExportEnabled",
@@ -2605,6 +2621,158 @@ describe("inverter control", () => {
       }
     });
 
+    describe("through the Enabled and Power states", () => {
+      async function writeField(
+        control: ReturnType<typeof createControlContext>,
+        field: "Enabled" | "Power",
+        value: ioBroker.StateValue,
+      ): Promise<void> {
+        await applyControlWrite(
+          control.context,
+          `goodwe.0.Settings.EcoMode.Slot2.${field}`,
+          { val: value, ack: false } as ioBroker.State,
+        );
+      }
+
+      it("writes the whole slot with the one field changed", async () => {
+        for (const [field, value, registers] of [
+          ["Enabled", false, [0x0200, 0x0500, 0xff9c, 0x007f]],
+          ["Enabled", 0, [0x0200, 0x0500, 0xff9c, 0x007f]],
+          // Toggles and input fields send these.
+          ["Enabled", "0", [0x0200, 0x0500, 0xff9c, 0x007f]],
+          ["Power", -30, [0x0200, 0x0500, 0xffe2, 0xff7f]],
+          ["Power", " -30 ", [0x0200, 0x0500, 0xffe2, 0xff7f]],
+          ["Power", 100, [0x0200, 0x0500, 0x0064, 0xff7f]],
+          ["Power", -100, [0x0200, 0x0500, 0xff9c, 0xff7f]],
+        ] as const) {
+          const control = createControlContext(true, {
+            stored: slotState(stored),
+          });
+
+          await writeField(control, field, value);
+
+          const label = `${field} ${String(value)}`;
+          assert.deepEqual(control.probes, [47547], label);
+          assert.deepEqual(
+            control.multiWrites,
+            // -100 is what the slot already holds.
+            field === "Power" && value === -100
+              ? []
+              : [{ start: 47519, values: [...registers] }],
+            label,
+          );
+          assert.deepEqual(control.updated, ["Settings.EcoMode"], label);
+        }
+      });
+
+      it("switches a slot on with true or 1", async () => {
+        for (const value of [true, 1, "1"]) {
+          const control = createControlContext(true, {
+            stored: slotState({ ...stored, enabled: false }),
+          });
+
+          await writeField(control, "Enabled", value);
+
+          assert.deepEqual(
+            control.multiWrites,
+            [{ start: 47519, values: [0x0200, 0x0500, 0xff9c, 0xff7f] }],
+            String(value),
+          );
+        }
+      });
+
+      it("refuses values outside the field and reads the slot back", async () => {
+        for (const [field, value] of [
+          ["Power", 101],
+          ["Power", -101],
+          ["Power", 1.5],
+          ["Power", "1.5"],
+          ["Power", ""],
+          ["Power", "-30 %"],
+          ["Power", true],
+          ["Power", null],
+          ["Enabled", 2],
+          ["Enabled", -1],
+          ["Enabled", "true"],
+          ["Enabled", null],
+        ] as const) {
+          const control = createControlContext(true, {
+            stored: slotState(stored),
+          });
+
+          await writeField(control, field, value);
+
+          const label = `${field} ${String(value)}`;
+          assert.deepEqual(control.multiWrites, [], label);
+          assert.deepEqual(control.writes, [], label);
+          assert.deepEqual(control.reads, ["settingsEcoMode"], label);
+          assert.deepEqual(control.updated, ["Settings.EcoMode"], label);
+        }
+      });
+
+      it("refuses to switch on a slot without times", async () => {
+        const control = createControlContext(true, {
+          stored: slotState({ ...stored, start: "", enabled: false }),
+        });
+
+        await writeField(control, "Enabled", true);
+
+        assert.deepEqual(control.multiWrites, []);
+        assert.deepEqual(control.updated, ["Settings.EcoMode"]);
+      });
+
+      it("writes the newer slot layout on EcoModeV2 firmware", async () => {
+        const control = createControlContext(true, {
+          probe: "answered",
+          stored: (state: string) =>
+            state === "Settings.EcoMode.Slot2.Json"
+              ? JSON.stringify({
+                  ...stored,
+                  type: 0,
+                  soc: 90,
+                  months: 0,
+                })
+              : null,
+        });
+
+        await writeField(control, "Power", -20);
+
+        assert.deepEqual(control.multiWrites, [
+          {
+            start: 47553,
+            values: [0x0200, 0x0500, 0xff7f, 0xffec, 0x005a, 0x0000],
+          },
+        ]);
+        assert.deepEqual(control.reads, [
+          "settingsEcoModeV2",
+          "settingsEcoModeV2",
+        ]);
+      });
+
+      it("acknowledges the field and the JSON when the read back fails", async () => {
+        const control = createControlContext(true, {
+          stored: slotState(stored),
+        });
+        let reads = 0;
+
+        control.context.inverter.ReadGroup = (groupName: string) => {
+          control.reads.push(groupName);
+          return Promise.resolve(++reads === 1);
+        };
+
+        await writeField(control, "Enabled", false);
+
+        assert.deepEqual(control.acknowledged, [
+          {
+            id: "Settings.EcoMode.Slot2.Json",
+            value: JSON.stringify({ ...stored, enabled: false }),
+            ack: true,
+          },
+          { id: "Settings.EcoMode.Slot2.Enabled", value: 0, ack: true },
+        ]);
+      });
+    });
+
     describe("on firmware with the newer eco mode registers", () => {
       // Slot 2 as an ARM 29 firmware holds it after SolarGo: eco, on.
       const storedV2 = {
@@ -3040,6 +3208,59 @@ describe("inverter control", () => {
       await writeWorkMode(control, 3);
 
       assert.deepEqual(control.writes, []);
+    });
+
+    it("writes 47533 = 1 after switching to general", async () => {
+      const control = createControlContext(true, { stored: ems(1, 0, 3) });
+
+      await writeWorkMode(control, 0);
+
+      assert.deepEqual(control.writes, [
+        { address: 47000, value: 0 },
+        { address: 47533, value: 1 },
+      ]);
+    });
+
+    it("writes 47533 only after a confirmed switch to general", async () => {
+      for (const [options, workMode, value] of [
+        // Eco needs it not, marcelblijleven/goodwe leaves it out there too.
+        [{}, 0, 3],
+        // Already general: a script repeating it must not write every cycle.
+        [{}, 0, 0],
+        // The inverter refused the work mode.
+        [{ writeConfirmed: false }, 3, 0],
+      ] as const) {
+        const control = createControlContext(true, {
+          ...options,
+          stored: ems(1, 0, workMode),
+        });
+
+        await writeWorkMode(control, value);
+
+        assert.ok(
+          !control.writes.some((write) => write.address === 47533),
+          `${workMode} to ${value}`,
+        );
+      }
+    });
+
+    it("keeps the switch to general when 47533 is refused", async () => {
+      const control = createControlContext(true, { stored: ems(1, 0, 3) });
+      const inverter = control.context.inverter;
+
+      inverter.WriteRegister = (address: number, value: number) => {
+        control.writes.push({ address, value });
+        return Promise.resolve(address !== 47533);
+      };
+
+      await writeWorkMode(control, 0);
+
+      assert.deepEqual(
+        control.writes.map((write) => write.address),
+        [47000, 47533],
+      );
+      // Read back as after every write.
+      assert.ok(control.reads.includes("settingsWorkMode"));
     });
 
     it("refuses a work mode outside general and eco before touching EMS", async () => {
@@ -3533,19 +3754,24 @@ describe("eco mode slots", () => {
     assert.equal(slots.Slot4.Start, "18:19");
     assert.equal(optionalGroupConfigs.settingsEcoModeV2, "pollSettings");
 
-    // Same state ids, so scripts do not depend on the firmware; as on V1 only
-    // the JSON state is writable.
+    // Same state ids, so scripts do not depend on the firmware; as on V1 the
+    // JSON, Enabled and Power states are writable.
     const v1States = registerGroups.settingsEcoMode.entries.map(
       (item) => item.state,
     );
 
-    for (const item of registerGroups.settingsEcoModeV2.entries) {
-      assert.match(item.state, /^Settings\.EcoMode\.Slot[1-4]\./);
-      assert.equal(
-        item.writable !== undefined,
-        item.state.endsWith(".Json"),
-        item.state,
-      );
+    for (const group of [
+      registerGroups.settingsEcoMode,
+      registerGroups.settingsEcoModeV2,
+    ]) {
+      for (const item of group.entries) {
+        assert.match(item.state, /^Settings\.EcoMode\.Slot[1-4]\./);
+        assert.equal(
+          item.writable !== undefined,
+          /\.(Json|Enabled|Power)$/.test(item.state),
+          item.state,
+        );
+      }
     }
     for (const state of v1States) {
       assert.ok(

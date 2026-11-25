@@ -328,6 +328,33 @@ function parseEcoSlotChanges(
 }
 
 /**
+ * Turns a write to the Enabled or Power state of a slot into the partial JSON
+ * parseEcoSlotChanges() takes, so both ways of writing share one check.
+ *
+ * Toggles and sliders send booleans, 0/1 or numbers as text; anything else is
+ * passed on as it is and refused there.
+ *
+ * @param field slot field the state shows
+ * @param value value written to the state
+ */
+function ecoSlotFieldJson(
+  field: "enabled" | "power",
+  value: ioBroker.StateValue,
+): string {
+  let parsed: unknown = value;
+
+  if (typeof value === "string" && /^\s*-?\d+\s*$/.test(value)) {
+    parsed = Number(value);
+  }
+
+  if (field === "enabled" && (parsed === 0 || parsed === 1)) {
+    parsed = parsed === 1;
+  }
+
+  return JSON.stringify({ [field]: parsed });
+}
+
+/**
  * Checks a merged slot before it is written.
  *
  * The fields a script left out come from the inverter and are not checked by
@@ -529,6 +556,7 @@ export {
   decodeEcoSlotV2,
   decodeEcoTime,
   decodeSlotType,
+  ecoSlotFieldJson,
   ecoSlotFromJson,
   ecoSlotJson,
   EcoModeV2Probe,

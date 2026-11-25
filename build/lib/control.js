@@ -9,6 +9,10 @@ const register_map_1 = require("./register-map");
 // Read like the poll reads this group: a lost answer must neither take the
 // connection offline nor pause the group the writable states live in.
 const controlReadOptions = { optional: true, backoff: false };
+// Written with 1 after a switch to general, see sendControlWrite().
+const ClearBatteryModeRegister = 47533;
+// Slot fields that are writable on their own, see ecoSlotFieldJson().
+const EcoSlotField = /^Settings\.EcoMode\.Slot\d\.(Enabled|Power)$/;
 /**
  * Returns the ioBroker state ids the control path accepts writes for.
  */
@@ -158,7 +162,11 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
         context.adapter.log.warn(`Ignoring write to ${stateId}: inverter is offline`);
         return;
     }
-    if (entry.type === register_map_1.TYPE.ECO_SLOT || entry.type === register_map_1.TYPE.ECO_SLOT_V2) {
+    // Enabled and Power of a slot sit in both slot layouts and go the way of
+    // the JSON state, which picks the layout by probing the firmware.
+    if (entry.type === register_map_1.TYPE.ECO_SLOT ||
+        entry.type === register_map_1.TYPE.ECO_SLOT_V2 ||
+        EcoSlotField.test(stateId)) {
         await sendEcoSlotWrite(context, stateId, stateValue);
         return;
     }
@@ -206,6 +214,20 @@ async function sendControlWrite(context, stateId, entry, stateValue) {
     }
     else {
         context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
+    }
+    // marcelblijleven/goodwe writes 47533 = 1 after every switch away from eco
+    // ("_clear_battery_mode_param"); nothing documents the register. On ARM 17
+    // general without it kept an active eco slot charging the battery (#61).
+    // Only after a real switch: a script repeating general every cycle would
+    // otherwise write it every cycle.
+    if (written && stateId === "Settings.WorkMode" && value === 0) {
+        const cleared = await context.inverter.WriteRegister(ClearBatteryModeRegister, 1);
+        if (context.inverter.Closed) {
+            return;
+        }
+        if (!cleared) {
+            context.adapter.log.warn(`Inverter did not confirm write to ${ClearBatteryModeRegister} after switching to general`);
+        }
     }
     // Read back either way: a rejected write leaves the state showing a value the
     // inverter never stored.
@@ -304,8 +326,12 @@ async function sendEcoSlotWrite(context, stateId, stateValue) {
     const v2 = probe === "answered";
     const groupName = v2 ? "settingsEcoModeV2" : "settingsEcoMode";
     const group = register_map_1.registerGroups[groupName];
+    const field = EcoSlotField.exec(stateId)?.[1];
+    const jsonId = field
+        ? stateId.replace(/\.(Enabled|Power)$/, ".Json")
+        : stateId;
     // Both groups hold the same state ids, at the addresses of their layout.
-    const entry = group.entries.find((item) => item.state === stateId);
+    const entry = group.entries.find((item) => item.state === jsonId);
     // The read back takes the group of the probed layout: 47515 has no slot type
     // and shows slots that were never set as switched on.
     const refuse = async (reason) => {
@@ -315,7 +341,9 @@ async function sendEcoSlotWrite(context, stateId, stateValue) {
     if (entry === undefined) {
         return;
     }
-    const parsed = (0, eco_mode_1.parseEcoSlotChanges)(stateValue, v2);
+    const parsed = (0, eco_mode_1.parseEcoSlotChanges)(field
+        ? (0, eco_mode_1.ecoSlotFieldJson)(field === "Enabled" ? "enabled" : "power", stateValue)
+        : stateValue, v2);
     if ("error" in parsed) {
         await refuse(parsed.error);
         return;
@@ -344,7 +372,12 @@ async function sendEcoSlotWrite(context, stateId, stateValue) {
     else {
         context.adapter.log.warn(`Inverter did not confirm write to ${stateId}`);
     }
-    if (!(await readGroupBack(context, groupName)) && written) {
-        await context.states.Acknowledge(stateId, plan.shown);
+    if ((await readGroupBack(context, groupName)) || !written) {
+        return;
+    }
+    await context.states.Acknowledge(jsonId, plan.shown);
+    if (field) {
+        const { enabled, power } = parsed.changes;
+        await context.states.Acknowledge(stateId, field === "Enabled" ? Number(enabled) : (power ?? null));
     }
 }

@@ -115,6 +115,8 @@ several registers (Modbus function 0x10). Every other state stays read-only.
 | `Settings.Battery.DischargeCurrent` | 45355 | 0-100 A | Maximum battery discharge current; the BMS may limit it further. The inverter returns to its default after a reboot, so a script has to write the value again |
 | `Settings.WorkMode` | 47000 | 0, 3 | Work mode: 0 general, 3 eco. Sets the EMS mode to auto first, see below |
 | `Settings.EcoMode.Slot1.Json` ... `Slot4.Json` | 47515-47530, from ARM 19 47547-47570 | JSON | One eco mode time slot, see [Eco mode time slots](#eco-mode-time-slots) |
+| `Settings.EcoMode.Slot1.Enabled` ... `Slot4.Enabled` | as `Json` | 0, 1 | Switches one eco mode time slot off or on |
+| `Settings.EcoMode.Slot1.Power` ... `Slot4.Power` | as `Json` | -100 to 100 % | Power of one eco mode time slot |
 
 `GridExportLimit`, `EmsPowerLimit`, the depths of discharge, `ChargeCurrent` and `DischargeCurrent`
 clamp values outside their range. The inverter stores the depth of discharge as the remaining reserve, 100 minus the value
@@ -129,7 +131,10 @@ on every work mode switch: a manual EMS mode such as charge battery keeps the in
 the work mode. This happens on every `WorkMode` write, also when the work mode stays the same, and is
 skipped when the inverter already holds auto and 0. If the inverter refuses the combined request, the
 adapter writes `EmsMode` and then `EmsPowerLimit` one at a time. If the EMS mode cannot be set
-either way, the work mode is not written. Numbers written as plain decimal text,
+either way, the work mode is not written. After a switch to general (0) the adapter also writes 1 to
+register 47533, as the Home Assistant integration does: without it, an eco mode time slot that was
+active kept running after the switch on ARM 17. The register is not documented. It is written only
+when the work mode really changes to general, not when a script writes general again. Numbers written as plain decimal text,
 for example `"500"` from an input field, are accepted, and `GridExportEnabled` also takes `true` and
 `false`; any other value is refused. The states are numbers, so ioBroker notes text and booleans with an
 info line in the log of the adapter that wrote them. After a
@@ -155,10 +160,11 @@ shows up in the states within one `pollCycle`.
 ### Eco mode time slots
 
 Inverters with ARM firmware before 19 keep four eco mode time slots in registers 47515-47530. Each
-slot `Settings.EcoMode.SlotN` has the read-only states `Start` and `End` ("HH:MM", empty while the
+slot `Settings.EcoMode.SlotN` has the states `Start` and `End` ("HH:MM", empty while the
 slot has no time), `Power` (% of the rated power; negative charges the battery from the grid, positive
 discharges it), `Days` (bit 0 Sunday to bit 6 Saturday, 127 every day) and `Enabled` (0 off, 1 on).
-With inverter control on, the slot is written through its JSON state `Json`:
+With inverter control on, `Enabled` and `Power` can be written directly, for example from a switch or
+a slider, and the whole slot through its JSON state `Json`:
 
 ```json
 {"start":"02:00","end":"05:00","power":-100,"days":127,"enabled":true}
@@ -172,6 +178,11 @@ slot, as the SolarGo app leaves unused slots, for example
 neither "HH:MM" between 00:00 and 23:59 nor `""`, a power outside -100 to 100, days outside 0-127, an
 `enabled` that is not `true` or `false`, and for a slot that would be enabled without start and end
 time or without any day.
+
+A write to `Enabled` or `Power` is the same as a partial JSON with that one field: `Enabled` = 0 does
+what `{"enabled":false}` does. `Enabled` takes 0, 1, `true` and `false`, `Power` a whole number from
+-100 to 100; both also take these numbers as text. Anything else is refused, not clamped. `Start`,
+`End` and `Days` stay read only, because start and end only make sense together.
 
 A slot only acts while the work mode is eco (3). To charge the battery from the grid at night, for
 example, write a slot with a negative power and then `WorkMode` = 3.
@@ -243,6 +254,8 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - The work mode (`Settings.WorkMode`) can be written when inverter control is on, limited to general (0) and eco (3). Off-grid, backup, peak shaving and self-use are refused. Like the SolarGo app, the adapter first sets the EMS mode to auto and the EMS power limit to 0 in one request, or in two single writes if the inverter refuses the combined request, so a manual EMS mode does not keep the inverter from following the work mode (#61).
 - Added the eco mode time slots (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state. On ARM firmware before 19 the JSON state can be written when inverter control is on: a partial JSON keeps the other fields, an empty start or end takes the time off a slot that is switched off, and the slot is written in one request and read back (#61).
 - On ARM firmware 19 and newer the eco mode time slots are read from their newer registers (47547-47570) into the same states, with the slot type, SoC and months as additional states. The JSON state writes them as well, including SoC and months, but only eco mode slots and slots that were never set; slots of another type, for example peak shaving, are refused.
+- `Settings.EcoMode.SlotN.Enabled` and `Settings.EcoMode.SlotN.Power` can be written as well, for switches and sliders that cannot build JSON. A write goes the same way as a partial JSON write (#61).
+- After a switch to general the adapter also writes 1 to register 47533, as the Home Assistant integration does. Without it, an active eco mode time slot kept charging the battery after the switch on ARM 17 (#61).
 - The work mode and the eco mode slots are read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, they are read even when `pollSettings` or `pollExtended` is off, which adds two requests per poll cycle.
 
 ### 1.3.0 (2026-10-27)

@@ -40,6 +40,13 @@ interface WritableRange {
   values?: readonly number[];
 }
 
+// Enabled and Power of an eco mode slot are writable for toggles and sliders.
+// control.ts turns such a write into the partial JSON of the slot, so it goes
+// the way of a JSON write: read, merge, all registers in one request, read
+// back. eco-mode.ts checks the value, the range only marks the state writable.
+const EcoEnabledRange: WritableRange = { min: 0, max: 1 };
+const EcoPowerRange: WritableRange = { min: -100, max: 100 };
+
 interface RegisterEntry {
   address: number;
   state: string;
@@ -1187,10 +1194,10 @@ const registerGroups: Record<string, RegisterGroup> = {
   // common.states keeps all six modes on purpose: the SolarGo app can set any
   // of them, and the state has to name the mode the inverter reports.
   // Like the SolarGo app, control.ts sets the EMS mode back to auto
-  // (47511/47512 = 1/0) before it writes the work mode. marcelblijleven/goodwe
-  // also writes 47533 = 1 for general. Nothing says what 47533 means, so it
-  // is left out; the switch to eco worked without it on ARM 17 (#61), the
-  // switch to general is untested.
+  // (47511/47512 = 1/0) before it writes the work mode, and like
+  // marcelblijleven/goodwe it writes 47533 = 1 after a switch to general.
+  // Nothing documents 47533; on ARM 17 general without it kept an active eco
+  // slot running (#61).
   settingsWorkMode: {
     name: "Settings.WorkMode",
     start: 47000,
@@ -1205,9 +1212,10 @@ const registerGroups: Record<string, RegisterGroup> = {
     ],
   },
 
-  // Eco mode time slots of firmware before ARM 19 (EcoModeV1). Only the JSON
-  // state of a slot is writable: control.ts writes the whole slot in one
-  // request, so the inverter never holds a half changed slot.
+  // Eco mode time slots of firmware before ARM 19 (EcoModeV1). The JSON state
+  // of a slot is writable, and Enabled and Power on their own: control.ts
+  // writes the whole slot in one request, so the inverter never holds a half
+  // changed slot. Start and End only make sense together and stay read only.
   settingsEcoMode: {
     name: "Settings.EcoMode",
     start: EcoSlotStarts[0],
@@ -1361,8 +1369,8 @@ function isTextType(type: RegisterType): boolean {
 }
 
 /**
- * Returns the entries of one eco mode slot: the fields read only, the whole
- * slot as a writable JSON state.
+ * Returns the entries of one eco mode slot: Enabled and Power writable, the
+ * other fields read only, the whole slot as a writable JSON state.
  *
  * @param slot slot number, 1 to 4
  * @param start first register of the slot
@@ -1381,6 +1389,7 @@ function ecoSlotEntries(slot: number, start: number): RegisterEntry[] {
     // Negative charges the battery from the grid, positive discharges it.
     entry(start + 2, `${state}.Power`, `${model}.Power`, TYPE.S16, {
       unit: "%",
+      writable: EcoPowerRange,
     }),
     // Bit 0 Sunday to bit 6 Saturday, 127 every day.
     entry(start + 3, `${state}.Days`, `${model}.Days`, TYPE.BYTE, {
@@ -1389,6 +1398,7 @@ function ecoSlotEntries(slot: number, start: number): RegisterEntry[] {
     entry(start + 3, `${state}.Enabled`, `${model}.Enabled`, TYPE.BYTE, {
       flag: true,
       states: valueStates.ecoSlotEnabled,
+      writable: EcoEnabledRange,
     }),
     // The range holds for each of the four registers; eco-mode.ts checks the
     // fields before anything is sent.
@@ -1423,6 +1433,7 @@ function ecoSlotV2Entries(slot: number, start: number): RegisterEntry[] {
     }),
     entry(start + 2, `${state}.Enabled`, `${model}.Enabled`, TYPE.SLOT_ON, {
       states: valueStates.ecoSlotEnabled,
+      writable: EcoEnabledRange,
     }),
     // Bit 0 Sunday to bit 6 Saturday, 127 every day.
     entry(start + 2, `${state}.Days`, `${model}.Days`, TYPE.BYTE, {
@@ -1431,6 +1442,7 @@ function ecoSlotV2Entries(slot: number, start: number): RegisterEntry[] {
     // In % for an eco slot; negative charges the battery from the grid.
     entry(start + 3, `${state}.Power`, `${model}.Power`, TYPE.S16, {
       unit: "%",
+      writable: EcoPowerRange,
     }),
     entry(start + 4, `${state}.Soc`, `${model}.Soc`, TYPE.S16, {
       unit: "%",
