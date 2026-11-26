@@ -170,12 +170,12 @@ const ADVANCED_FIELDS: Array<{
   {
     key: "pollSettings",
     label: "Poll settings",
-    help: "Reads battery settings 45350-45358, EMS settings 47509-47512, work mode 47000 and load control 47595-47597: battery capacity, charge and discharge limits, grid export limit, EMS mode, work mode and load control.",
+    help: "Reads battery settings 45350-45358, EMS settings 47509-47512, work mode 47000, eco mode time slots 47515-47530 or 47547-47570 and load control 47595-47597: battery capacity, charge and discharge limits, grid export limit, EMS mode, work mode, eco mode time slots and load control.",
   },
   {
     key: "enableControl",
     label: "Enable inverter control",
-    help: "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, work mode, depth of discharge and battery charge and discharge current states writable. GoodWe does not document writable registers, so use this at your own risk.",
+    help: "Makes the grid export switch, grid export limit, EMS mode, EMS power limit, work mode, eco mode time slots, depth of discharge and battery charge and discharge current states writable. GoodWe does not document writable registers, so use this at your own risk.",
   },
 ];
 
