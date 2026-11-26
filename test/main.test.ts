@@ -2640,6 +2640,8 @@ describe("inverter control", () => {
           ["Enabled", 0, [0x0200, 0x0500, 0xff9c, 0x007f]],
           // Toggles and input fields send these.
           ["Enabled", "0", [0x0200, 0x0500, 0xff9c, 0x007f]],
+          ["Enabled", "false", [0x0200, 0x0500, 0xff9c, 0x007f]],
+          ["Enabled", " FALSE ", [0x0200, 0x0500, 0xff9c, 0x007f]],
           ["Power", -30, [0x0200, 0x0500, 0xffe2, 0xff7f]],
           ["Power", " -30 ", [0x0200, 0x0500, 0xffe2, 0xff7f]],
           ["Power", 100, [0x0200, 0x0500, 0x0064, 0xff7f]],
@@ -2666,7 +2668,7 @@ describe("inverter control", () => {
       });
 
       it("switches a slot on with true or 1", async () => {
-        for (const value of [true, 1, "1"]) {
+        for (const value of [true, 1, "1", "true", " True "]) {
           const control = createControlContext(true, {
             stored: slotState({ ...stored, enabled: false }),
           });
@@ -2690,10 +2692,15 @@ describe("inverter control", () => {
           ["Power", ""],
           ["Power", "-30 %"],
           ["Power", true],
+          ["Power", "true"],
           ["Power", null],
           ["Enabled", 2],
           ["Enabled", -1],
-          ["Enabled", "true"],
+          ["Enabled", "2"],
+          ["Enabled", ""],
+          ["Enabled", "yes"],
+          ["Enabled", "on"],
+          ["Enabled", "truee"],
           ["Enabled", null],
         ] as const) {
           const control = createControlContext(true, {
