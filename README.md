@@ -254,7 +254,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.4.0 (2026-11-26)
 - The battery discharge current can be written when inverter control is on, so a script can restore a lower limit after a reboot of the inverter (#60).
 - The work mode can be written when inverter control is on, limited to general and eco. Like the SolarGo app, the adapter first sets the EMS mode to auto (#61).
 - Added the four eco mode time slots, on ARM firmware 19 and newer with type, SoC and months. With inverter control on, a whole slot can be written as JSON, and its on/off switch and power on their own (#61).
@@ -289,15 +289,6 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - Fixed the adapter crashing with `Cannot read properties of undefined (reading 'debug')`: the logger is now read when it is used instead of being captured before the adapter assigned it.
 - Fixed the adapter staying offline after a single lost UDP answer. The socket is rebound after a timeout, so a late answer can no longer be mistaken for the answer of the next register group.
 - The first failed reconnect is logged as a warning again, so an adapter that turned yellow no longer stays silent.
-
-### 1.1.2 (2026-08-27)
-- Fixed unsigned 32 bit registers being reported as negative values (for example `RunningData.DiagStatusL` and `RunningData.ErrorMessage`).
-- Boolean options are normalized at adapter start, so a string typed switch no longer disables an optional register group and deletes its states.
-- Discarded late UDP answers after a timeout; they could be parsed as the answer of the next register group with the same length.
-- Blocked state writes after `onUnload()` and moved the last direct state write out of the scheduler.
-- Added an exponential backoff for reconnect attempts while the inverter is offline and reduced the repeated warnings to debug.
-- Clamped probe timeouts coming from admin messages.
-- Enabled TypeScript `strict` mode.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
