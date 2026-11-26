@@ -134,7 +134,9 @@ adapter writes `EmsMode` and then `EmsPowerLimit` one at a time. If the EMS mode
 either way, the work mode is not written. After a switch to general (0) the adapter also writes 1 to
 register 47533, as the Home Assistant integration does: without it, an eco mode time slot that was
 active kept running after the switch on ARM 17. The register is not documented. It is written only
-when the work mode really changes to general, not when a script writes general again. Numbers written as plain decimal text,
+when the work mode really changes to general, not when a script writes general again. On ARM 17 the
+inverter answers 47533 by switching the active slot off, so a script that returns to eco has to set
+`Enabled` of that slot to 1 again. Numbers written as plain decimal text,
 for example `"500"` from an input field, are accepted, and `GridExportEnabled` also takes `true` and
 `false`; any other value is refused. The states are numbers, so ioBroker notes text and booleans with an
 info line in the log of the adapter that wrote them. After a
@@ -185,7 +187,9 @@ what `{"enabled":false}` does. `Enabled` takes 0, 1, `true` and `false`, `Power`
 `End` and `Days` stay read only, because start and end only make sense together.
 
 A slot only acts while the work mode is eco (3). To charge the battery from the grid at night, for
-example, write a slot with a negative power and then `WorkMode` = 3.
+example, write a slot with a negative power and then `WorkMode` = 3. A switch to general switches the
+active slot off on ARM 17 (see [Inverter control](#inverter-control)); switch it on again before the
+next switch to eco.
 
 Firmware from ARM 19 keeps its slots in registers 47547-47570, six registers per slot. The adapter
 checks this once per connection and reads the slots from there into the same states, so a script
@@ -255,7 +259,7 @@ Recurring `retry` messages on debug level mean single UDP answers are getting lo
 - Added the eco mode time slots (`Settings.EcoMode.Slot1.*` to `Slot4.*`, read with `pollSettings`): start, end, power, days and on/off as read-only states, and the whole slot as a JSON state. On ARM firmware before 19 the JSON state can be written when inverter control is on: a partial JSON keeps the other fields, an empty start or end takes the time off a slot that is switched off, and the slot is written in one request and read back (#61).
 - On ARM firmware 19 and newer the eco mode time slots are read from their newer registers (47547-47570) into the same states, with the slot type, SoC and months as additional states. The JSON state writes them as well, including SoC and months, but only eco mode slots and slots that were never set; slots of another type, for example peak shaving, are refused.
 - `Settings.EcoMode.SlotN.Enabled` and `Settings.EcoMode.SlotN.Power` can be written as well, for switches and sliders that cannot build JSON. A write goes the same way as a partial JSON write (#61).
-- After a switch to general the adapter also writes 1 to register 47533, as the Home Assistant integration does. Without it, an active eco mode time slot kept charging the battery after the switch on ARM 17 (#61).
+- After a switch to general the adapter also writes 1 to register 47533, as the Home Assistant integration does. Without it, an active eco mode time slot kept charging the battery after the switch on ARM 17. The inverter then switches that slot off, so it has to be switched on again before the next switch to eco (#61).
 - The work mode and the eco mode slots are read on every poll cycle together with the battery and EMS settings, instead of in the slot of the optional groups. With inverter control on, they are read even when `pollSettings` or `pollExtended` is off, which adds two requests per poll cycle.
 
 ### 1.3.0 (2026-10-27)
